@@ -1,0 +1,874 @@
+# Import Libraries
+
+```{r}
+library(circlize)
+library(readr)
+library(survival)
+library(survminer)
+
+tic()
+
+```
+
+# Filtering SLICE's results (final step in the funnel)
+
+```{r filtering pSLPs - only targetable partners}
+# Initialize empty dataframes for lfcs and pvalues
+lfcs_df <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    cancer_types = character(),
+    delta_dependency = numeric(),
+    stringsAsFactors = FALSE
+)
+
+pvalues_df <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    cancer_types = character(),
+    pvalue = numeric(),
+    stringsAsFactors = FALSE
+)
+
+process_matrix <- function(matrix_data, matrix_name, threshold, df, type) {
+    matrix_data <- matrix_data[, colnames(matrix_data) %in% druggable_genes, drop = FALSE]
+
+    # Extract driver and partner gene names
+    driver_genes <- rownames(matrix_data)
+    partner_genes <- colnames(matrix_data)
+    
+    # Find pairs with the given threshold
+    if(type == "pvalue"){
+      indices <- which(matrix_data <= threshold, arr.ind = TRUE)
+
+      # Check if there are non-empty results before creating the dataframe
+      if (length(indices) > 0) {
+        result_vector <- c()
+        for(i in 1:length(driver_genes[indices[, 1]])){
+          result_vector[i] <- matrix_data[driver_genes[indices[, 1]][i], partner_genes[indices[, 2]][i]]
+        }
+        
+        current_df <- data.frame(
+            driver_gene = driver_genes[indices[, 1]],
+            partner_gene = partner_genes[indices[, 2]],
+            cancer_types = matrix_name,
+            pvalue = result_vector,
+            stringsAsFactors = FALSE
+        )
+        
+        # Append to the input dataframe
+        return(rbind(df, current_df))
+      } else {
+          return(df)
+      }
+    }
+    else{
+      indices <- which(-matrix_data >= threshold, arr.ind = TRUE)
+      
+      # Check if there are non-empty results before creating the dataframe
+      if (length(indices) > 0) {
+        result_vector <- c()
+        for(i in 1:length(driver_genes[indices[, 1]])){
+          result_vector[i] <- matrix_data[driver_genes[indices[, 1]][i],
+                                          partner_genes[indices[, 2]][i]]
+        }
+        
+        current_df <- data.frame(
+            driver_gene = driver_genes[indices[, 1]],
+            partner_gene = partner_genes[indices[, 2]],
+            cancer_types = matrix_name,
+            delta_dependency = result_vector,
+            stringsAsFactors = FALSE
+        )
+        
+        # Append to the input dataframe
+        return(rbind(df, current_df))
+      } else {
+          return(df)
+      }
+    }
+}
+
+# Iterate through the list of matrices (mut_spec_lfcs)
+for (i in seq_along(mut_spec_lfcs)) {
+    matrix_name <- names(mut_spec_lfcs)[i]
+    matrix_data_lfcs <- mut_spec_lfcs[[i]]
+    
+    lfcs_df <- process_matrix(matrix_data_lfcs, matrix_name, 0.2, lfcs_df, "LFC")
+}
+lfcs_df <- process_matrix(lfc_matrix, "pan", 0.2, lfcs_df, "LFC")
+
+# Iterate through the list of matrices (mut_spec_pvalues)
+for (i in seq_along(mut_spec_pvalues)) {
+    matrix_name <- names(mut_spec_pvalues)[i]
+    matrix_data_pvalues <- mut_spec_pvalues[[i]]
+        
+    pvalues_df <- process_matrix(matrix_data_pvalues, matrix_name, 0.05, pvalues_df, "pvalue")
+    print(nrow(pvalues_df))
+}
+pvalues_df <- process_matrix(pvalue_matrix, "pan", 0.05, pvalues_df, "pvalue")
+
+# Find the intersection of lfcs_df and pvalues_df
+intersection_df <- merge(lfcs_df, pvalues_df, by = c("driver_gene", "partner_gene", "cancer_types"))
+
+# Print the resulting intersection dataframe
+View(intersection_df)
+
+```
+
+```{r filtering pSLPs - only frequent drivers (mutated in >15% of the population)}
+# Install and load necessary packages
+library(cbioportalR)
+library(dplyr)
+
+set_cbioportal_db("public")
+test_cbioportal_db()
+
+all_cbioportal_studies <- available_studies()
+all_cbioportal_studies
+
+intersection_df$driver_freq <- NA
+
+cbio_driver_freq <- matrix(nrow = length(unique(intersection_df$driver_gene)),
+                           ncol = length(unique(intersection_df$cancer_types)),
+                           data = 0)
+
+row.names(cbio_driver_freq) <- unique(intersection_df$driver_gene)
+colnames(cbio_driver_freq) <- unique(intersection_df$cancer_types)
+
+for(cancer_type in colnames(cbio_driver_freq)){
+  if(cancer_type == "pan"){
+    cbio_driver_freq[,cancer_type] <- NA
+    next
+  }
+  
+  cbio_relevant_studies <- all_cbioportal_studies %>% filter(str_detect(name,
+                                                                        regex(paste(gsub(" Cancer",
+                                                                                         "",
+                                                                                         cancer_type),
+                                                                                    ".*tcga",sep=""),
+                                                                              dotall = T, ignore_case = T)))
+  
+  if(cancer_type == "Colon Colorectal Cancer"){
+    cbio_relevant_studies <- all_cbioportal_studies %>% filter(str_detect(name,
+                                                                        regex(paste("Colorectal.*tcga",sep=""),
+                                                                              dotall = T, ignore_case = T)))
+  }
+  if(cancer_type == "Gastric Cancer"){
+    cbio_relevant_studies <- all_cbioportal_studies %>% filter(str_detect(name,
+                                                                        regex(paste("Esophageal.*tcga",sep=""),
+                                                                              dotall = T, ignore_case = T)))
+  }
+  if(cancer_type == "Myeloma"){
+    cbio_relevant_studies <- all_cbioportal_studies %>% filter(str_detect(name,
+                                                                          regex(cancer_type,
+                                                                                dotall = T, ignore_case = T)))
+  }
+  
+  print(nrow(cbio_relevant_studies))
+  
+  for (study in cbio_relevant_studies$studyId) {
+    print(study)
+    cbio_mut_data <- get_mutations_by_study(study_id = study)
+
+    for(gene_name in row.names(cbio_driver_freq)){
+      freq <-length(unique((cbio_mut_data%>%filter(hugoGeneSymbol == gene_name))$patientId))*100 /
+        length(unique(cbio_mut_data$patientId))
+      cbio_driver_freq[gene_name,cancer_type] <- cbio_driver_freq[gene_name,cancer_type] + freq
+
+    }
+    
+  }
+  for(gene_name in row.names(cbio_driver_freq)){
+    cbio_driver_freq[gene_name,cancer_type] <- cbio_driver_freq[gene_name,cancer_type] / nrow(cbio_relevant_studies)
+  }
+}
+
+for(i in 1:nrow(intersection_df)){
+  intersection_df[i,]$driver_freq <- cbio_driver_freq[intersection_df[i,]$driver_gene,intersection_df[i,]$cancer_types]
+}
+
+final_pairs <- intersection_df %>% filter(driver_freq > 15)
+
+```
+
+# STRINGdb Literary Validation
+
+```{r are the pairs connected in STRINGdb?}
+# Install and load the required packages
+if (!requireNamespace("httr", quietly = TRUE)) {
+  install.packages("httr")
+}
+if (!requireNamespace("stringr", quietly = TRUE)) {
+  install.packages("stringr")
+}
+library(httr)
+library(stringr)
+
+STRING_analysis <- function(my_genes, print = F){
+  # Define the parameters
+  string_api_url <- "https://version-11-5.string-db.org/api"
+  output_format <- "tsv-no-header"
+  method <- "interaction_partners"
+  
+  # Construct the request URL
+  request_url <- paste(string_api_url, output_format, method, sep = "/")
+  
+  # Set parameters
+  params <- list(
+    identifiers = paste(my_genes, collapse = "%0d"),
+    species = 9606, # species NCBI identifier
+    limit = 100,
+    caller_identity = "www.awesome_app.org" # your app name
+  )
+  
+  # Call STRING
+  response <- POST(request_url, body = params)
+
+  # Read and parse the results
+  result <- httr::content(response, as = "text")
+  lines <- str_split(result, "\n")[[1]]
+  
+  for (line in lines) {
+    fields <- str_split(line, "\t")[[1]]
+    query_ensp <- fields[1]
+    query_name <- fields[3]
+    partner_ensp <- fields[2]
+    partner_name <- fields[4]
+    combined_score <- fields[6]
+  
+    # Print the results
+    if(query_name %in% my_genes && partner_name %in% my_genes && !print){
+      return(TRUE)
+    }
+    
+    if(print){
+      cat(query_name, partner_name, combined_score, "\n", sep = " ")
+    }
+  }
+  return(FALSE)
+}
+
+add_STRING_status <- function(df){
+  new_df <- df %>%
+    rowwise() %>%
+    mutate(STRING = STRING_analysis(c(driver_gene, partner_gene))) %>%
+    ungroup()
+  
+  return(new_df)
+}
+
+intersection_df <- add_STRING_status(intersection_df)
+final_pairs <- add_STRING_status(final_pairs)
+
+```
+
+```{r STRING meta analysis}
+STRING_meta_analysis <- function(driver_genes, partner_genes){
+  # Define the parameters
+  string_api_url <- "https://version-11-5.string-db.org/api"
+  output_format <- "tsv-no-header"
+  method <- "interaction_partners"
+  
+  results <- matrix(FALSE, nrow = length(driver_genes), ncol = length(partner_genes))
+  row.names(results) <- driver_genes
+  colnames(results) <- partner_genes
+
+  # Construct the request URL
+  request_url <- paste(string_api_url, output_format, method, sep = "/")
+  
+  # Set parameters
+  params <- list(
+    identifiers = paste(driver_genes, collapse = "%0d"),
+    species = 9606, # species NCBI identifier
+    limit = 100,
+    caller_identity = "www.awesome_app.org" # your app name
+  )
+  
+  # Call STRING
+  response <- POST(request_url, body = params)
+
+  # Read and parse the results
+  result <- httr::content(response, as = "text")
+  lines <- str_split(result, "\n")[[1]]
+  
+  for (line in lines) {
+    fields <- str_split(line, "\t")[[1]]
+    query_ensp <- fields[1]
+    query_name <- fields[3]
+    partner_ensp <- fields[2]
+    partner_name <- fields[4]
+    combined_score <- fields[6]
+  
+    # Print the results
+    if(partner_name %in% partner_genes){
+      results[query_name, partner_name] <- TRUE
+    }
+  }
+  return(results)
+}
+
+STRING_ratios <- data.frame(name = character(),
+                            type = character(),
+                  STRING_TRUE = numeric(),
+                  STRING_FALSE = numeric(),
+                  ratio = numeric()
+                  )
+
+na_slice <- list()
+
+for (i in seq_along(mut_spec_pvalues)) {
+    print(names(mut_spec_pvalues)[i])
+    all_freq <- as.numeric(table(STRING_meta_analysis(row.names(mut_spec_pvalues[[i]]),
+                                                      colnames(mut_spec_pvalues[[i]]))))
+    slice_freq <- as.numeric(table((final_pairs %>%
+                                      filter(cancer_types == names(mut_spec_pvalues)[i]))$STRING))
+    if(is.na(slice_freq[2])){
+      slice_freq[2] <- 0
+      na_slice <- append(na_slice, names(mut_spec_pvalues)[i])
+    }
+    
+    STRING_ratios <- rbind(STRING_ratios,
+                           data.frame(
+                             name = names(mut_spec_pvalues)[i],
+                             type = "ALL",
+                             STRING_TRUE = all_freq[2],
+                             STRING_FALSE = all_freq[1],
+                             ratio = all_freq[2]/(all_freq[2]+all_freq[1])
+                             ),
+                           data.frame(
+                             name = names(mut_spec_pvalues)[i],
+                             type = "SLICE",
+                             STRING_TRUE = slice_freq[2],
+                             STRING_FALSE = slice_freq[1],
+                             ratio = slice_freq[2]/(slice_freq[2]+slice_freq[1])
+                             )
+                           )
+}
+
+all_freq <- c(0, 0)
+for(i in 1:length(row.names(pvalue_matrix))){
+  if(i == 31){
+    i=32
+  }
+  all_freq_tmp <- as.numeric(table(STRING_meta_analysis(row.names(pvalue_matrix)[i],
+                                                  colnames(pvalue_matrix))))
+  if(is.na(all_freq_tmp[2])){
+    all_freq_tmp[2] = 0
+  }
+  all_freq[1] <- all_freq[1] + all_freq_tmp[1]
+  all_freq[2] <- all_freq[2] + all_freq_tmp[2]
+}
+
+slice_freq <- as.numeric(table((final_pairs %>%
+                                  filter(cancer_types == "pan"))$STRING))
+
+# STRING_ratios <- rbind(STRING_ratios,
+#                        data.frame(
+#                          name = "Pan-cancer",
+#                          type = "ALL",
+#                          STRING_TRUE = all_freq[2],
+#                          STRING_FALSE = all_freq[1],
+#                          ratio = all_freq[2]/(all_freq[2]+all_freq[1])
+#                          ),
+#                        data.frame(
+#                          name = "Pan-cancer",
+#                          type = "SLICE",
+#                          STRING_TRUE = slice_freq[2],
+#                          STRING_FALSE = slice_freq[1],
+#                          ratio = slice_freq[2]/(slice_freq[2]+slice_freq[1])
+#                          )
+#                        )
+
+ggplot(STRING_ratios %>% filter(!(name %in% na_slice)), aes(fill = type, y = ratio * 100, x = name)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  coord_flip() +
+  labs(y = "%Literature approved") +
+  theme_minimal()
+
+```
+
+# Finding Repeating Pairs
+
+```{r finding driver-gene/gene pairs that appear in more than 1 cancer-type}
+# Identify duplicate rows based on driver_gene and partner_gene columns
+duplicates <- duplicated(intersection_df[, c("driver_gene", "partner_gene")])
+
+# Use the fromLast argument to identify the first instance and all duplicates
+include_rows <- duplicated(intersection_df[, c("driver_gene", "partner_gene")], fromLast = TRUE) | duplicates
+
+library(stringr)
+result_df <- intersection_df[include_rows, ] %>%
+  group_by(driver_gene, partner_gene) %>%
+  summarise(
+    average_delta_dependency = mean(delta_dependency),
+    average_pvalue = mean(pvalue),
+    STRING = STRING[1],
+    cancer_types = paste(cancer_types, collapse = ", "),
+  ) %>%
+  ungroup() %>%
+  mutate(number_of_cancer_types = str_count(cancer_types, ", ") + 1)
+
+View(result_df)
+
+```
+
+# Heatmaps
+
+```{r cancer-specific dependency profiles - ignore}
+library("colorspace")
+library(ComplexHeatmap)
+
+ht_maps <- c()
+
+for(cancerType in names(mut_spec_pvalues)){
+  data_dd <- ((-funrar::stack_to_matrix(intersection_df %>% filter(cancer_types == cancerType) %>%
+                                        filter(partner_gene != "TP53"),
+                                        'driver_gene', 'partner_gene', 'delta_dependency')
+                %>% replace(is.na(.), 0))^2 %>% replace(0 >., 0) %>% replace(0.4 <., 0.4))
+  data_pvalue <- (funrar::stack_to_matrix(intersection_df %>% filter(cancer_types == cancerType) %>%
+                                          filter(partner_gene != "TP53"),
+                                          'driver_gene', 'partner_gene', 'pvalue')
+                %>% replace(is.na(.), 0))
+  
+  if(dim(data_pvalue)[1] <= 1 ||  dim(data_dd)[1] <= 1){
+    print(paste(cancerType, "skipped"))
+    next
+  }
+  else{
+    print(cancerType)
+  }
+  
+  # Your existing Heatmap code
+  ht <- Heatmap(
+    data_dd, # data
+    show_row_dend = FALSE, show_column_dend = FALSE,
+    col = colorRamp2(c(0, 0.4), c("white", "red")), # color
+    name = "DD squared",
+    border_gp = gpar(col = "black", lty = 2), rect_gp = gpar(col = "white", lwd = 0.5), # border and gaps
+    row_title = "driver genes", row_title_side = "right", column_title = "partners", column_title_side = "bottom", # titles
+    row_names_gp = gpar(fontsize = 10), column_names_gp = gpar(fontsize = 10),
+    layer_fun = function(j, i, x, y, width, height, fill) {
+      v = pindex(data_pvalue, i, j)
+      l = v > 0 & v < 1e-03
+      if(any(l)){
+        grid.text(sprintf(ifelse(v[l], "*", "")), x[l], y[l], gp = gpar(fontsize = 15))
+      }
+    }
+  )
+  
+  ht_maps <- c(ht_maps, ht)
+  
+  if(cancerType == "Lung Cancer"){
+    jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+       height = 1000, width = 1600, units = "px", res = 100)
+    draw(ht)
+    dev.off()
+    next
+  }
+  
+  jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+       height = 600, width = 1600, units = "px", res = 200)
+  draw(ht)
+  dev.off()
+}
+
+```
+
+```{r cancer-specific dependency profiles (circles)}
+library("colorspace")
+library(ComplexHeatmap)
+
+ht_maps <- c()
+
+for(cancerType in names(mut_spec_pvalues)){
+  data_dd <- ((-funrar::stack_to_matrix(intersection_df %>% filter(cancer_types == cancerType) %>%
+                                        filter(partner_gene != "TP53"),
+                                        'driver_gene', 'partner_gene', 'delta_dependency')
+                %>% replace(is.na(.), 0))^2 %>% replace(0 >., 0) %>% replace(0.4 <., 0.4))
+  data_pvalue <- (funrar::stack_to_matrix(intersection_df %>% filter(cancer_types == cancerType) %>%
+                                          filter(partner_gene != "TP53"),
+                                          'driver_gene', 'partner_gene', 'pvalue')
+                %>% replace(is.na(.), 0))
+  
+  if(dim(data_pvalue)[1] <= 1 ||  dim(data_dd)[1] <= 1){
+    print(paste(cancerType, "skipped"))
+    next
+  }
+  else{
+    print(cancerType)
+  }
+  
+  col_fun = colorRamp2(c(0, 0.4), c("white", "red"))
+  
+  freqs <- c()
+  for(dg in row.names(data_dd)){
+    freqs <- c(freqs, (intersection_df %>% filter(cancer_types == cancerType) %>% filter(driver_gene == dg))$driver_freq[1])
+  }
+  
+  
+  data_dd <- data_dd[order(freqs, decreasing=T),]
+  data_pvalue <- data_pvalue[order(freqs, decreasing=T),]
+  freqs <- freqs[order(freqs, decreasing=T)]
+  
+  # Your existing Heatmap code
+  ht <- Heatmap(
+    data_dd, # data
+    col = col_fun,
+    left_annotation = rowAnnotation("driver freq" = freqs,
+                                    col = list("driver freq" = colorRamp2(c(0, 100), c("white", "blue"))),
+                                    show_annotation_name = F,
+                                    annotation_legend_param = list(
+                                      "driver freq" = list(
+                                        at = c(0, 25, 50, 75, 100),
+                                        labels = c("0%", "25%", "50%", "75%", "100%")
+                                        )
+                                      )
+                                    ),
+    show_row_dend = FALSE, show_column_dend = FALSE, cluster_rows = FALSE,
+    name = "DD squared",
+    border_gp = gpar(col = "black", lty = 2), rect_gp = gpar(type = "none"), # border and gaps
+    row_title = "driver genes", row_title_side = "left", column_title = "partners", column_title_side = "bottom", # titles
+    row_names_side = "left", row_names_gp = gpar(fontsize = 10), column_names_gp = gpar(fontsize = 10),
+    layer_fun = function(j, i, x, y, width, height, fill) {
+      pvalue = pindex(data_pvalue, i, j)
+      dd = pindex(data_dd, i, j)
+      
+      radius = numeric(length(pvalue))
+      for (q in 1:length(radius)) {
+        if((pvalue[q]) == 0){
+          radius[q] = 0
+          next
+        }
+        else{
+          radius[q] = round(-log10(pvalue[q]))/2
+        }
+        # if(-log10(pvalue[q]) > 3){
+        #   radius[q] = 1.5
+        # } else if(-log10(pvalue[q]) > 2){
+        #   radius[q] = 1
+        # } else if(-log10(pvalue[q]) > 1){
+        #   radius[q] = 0.5
+        # }
+      }
+      
+      grid.circle(x = x, y = y, r = radius * min(unit.c(width, height)), 
+                  gp = gpar(fill = col_fun(dd), col = NA))
+      
+      v = pindex(data_pvalue, i, j)
+      l = v > 0 & v < 1e-03
+      if(any(l)){
+        grid.text(sprintf(ifelse(v[l], "*", "")), x[l], y[l], gp = gpar(fontsize = 15))
+      }
+    }
+  )
+
+  ht_maps <- c(ht_maps, ht)
+  
+  if(cancerType == "Lung Cancer"){
+    jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+       height = 1000, width = 2500, units = "px", res = 100)
+    draw(ht)
+    dev.off()
+    next
+  }
+  
+  jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+       height = 600, width = 1800, units = "px", res = 200)
+  draw(ht)
+  dev.off()
+}
+
+```
+
+```{r multi-cancer dependency profile (stacked circles) - ignore}
+library("colorspace")
+library(ComplexHeatmap)
+
+drivers <- read_lines("/bigdata/zivcohen/graphs/dependency_profiles/rows.txt")
+partners <- read_lines("/bigdata/zivcohen/graphs/dependency_profiles/cols.txt")
+
+data_dds <- list()
+data_pvalues <- list()
+
+for(cancerType in names(mut_spec_pvalues)){
+  data_dd <- ((-funrar::stack_to_matrix(intersection_df %>% filter(cancer_types == cancerType) %>%
+                                        filter(partner_gene != "TP53"),
+                                        'driver_gene', 'partner_gene', 'delta_dependency')
+                %>% replace(is.na(.), 0))^2 %>% replace(0 >., 0) %>% replace(0.4 <., 0.4))
+  data_pvalue <- (funrar::stack_to_matrix(intersection_df %>% filter(cancer_types == cancerType) %>%
+                                          filter(partner_gene != "TP53"),
+                                          'driver_gene', 'partner_gene', 'pvalue')
+                %>% replace(is.na(.), 0))
+  
+  data = matrix(0, nrow = length(drivers), ncol = length(partners))
+      row.names(data) <- drivers
+      colnames(data) <- partners
+  data[row.names(data_pvalue), colnames(data_pvalue)] <- data_pvalue
+  data_pvalues <- c(data_pvalues, list(data))
+  
+  data = matrix(0, nrow = length(drivers), ncol = length(partners))
+      row.names(data) <- drivers
+      colnames(data) <- partners
+  data[row.names(data_pvalue), colnames(data_pvalue)] <- data_pvalue
+  data_dds <- c(data_dds, list(data))
+}
+
+color_list <- c("red", "blue", "green", "yellow", "lightblue", "purple", "orange", "pink", "magenta", "cyan", "gray", "brown", "black", "darkgreen") #14
+                #1      #2      #3       #4        #5           #6        #7        #8      #9         #10     #11
+
+
+data = matrix(0, nrow = length(drivers), ncol = length(partners))
+      row.names(data) <- drivers
+      colnames(data) <- partners
+# Your existing Heatmap code
+ht <- Heatmap(
+  data, # data
+  show_heatmap_legend = FALSE,
+  show_row_dend = FALSE, show_column_dend = FALSE,
+  name = "DD squared",
+  border_gp = gpar(col = "black", lty = 2), rect_gp = gpar(type = "none"), # border and gaps
+  row_title = "driver genes", row_title_side = "right", column_title = "partners", column_title_side = "bottom", # titles
+  row_names_gp = gpar(fontsize = 10), column_names_gp = gpar(fontsize = 10),
+  layer_fun = function(j, i, x, y, width, height, fill) {
+    for(t in 1:length(data_dds)){
+      print(t)
+      
+      data_pvalue = data_pvalues[[t]]
+      data_dd = data_dds[[t]]
+      
+      pvalue = pindex(data_pvalue, i, j)
+      dd = pindex(data_dd, i, j)
+      
+      # using pvalue for size
+      # radius = numeric(length(pvalue))
+      # for (q in 1:length(radius)) {
+      #   if((pvalue[q]) == 0){
+      #     radius[q] = 0
+      #     next
+      #   } else if(-log10(pvalue[q]) < 1){
+      #     radius[q] = 0
+      #   } else {
+      #     radius[q] = -log10(pvalue[q])/2
+      #   }
+      # }
+      
+      # using dd for size
+      radius = numeric(length(dd))
+      for (q in 1:length(radius)) {
+        if((pvalue[q]) == 0){
+          radius[q] = 0
+          next
+        } else {
+          radius[q] = dd[q]*25
+        }
+      }
+      
+      grid.circle(x = x, y = y, r = radius * min(unit.c(width, height)), 
+                gp = gpar(fill = adjustcolor(color_list[t], alpha.f = 0.1), col = color_list[t])) #colorRamp2(c(0, 0.4), c("white", color_list[t]))
+    }
+  }
+)
+
+lgd = Legend(labels = names(mut_spec_pvalues), legend_gp = gpar(fill = color_list), title = "Cancer Types", 
+    ncol = 1, title_position = "leftcenter")
+
+jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/all_results_circles.jpeg",sep=""),
+     height = 5000, width = 10000, units = "px", res = 200)
+draw(ht)
+draw(lgd, x = unit(0.01, "npc"), y = unit(0.5, "npc"), just = c("left"))
+dev.off()
+
+
+```
+
+```{r multi-cancer dependency profile (circles, top-10 of each cancer)}
+# The final heatmap contains the top-10 (or up to 10) pairs in each cancer type.
+# The pairs are only pairs with a driver's frequency of over 15% and targetable partners
+
+data = final_pairs %>% filter(partner_gene != "TP53")
+data$pair = paste(data$driver_gene, "_", data$partner_gene, sep="")
+
+data_dd <- ((-funrar::stack_to_matrix(data, 'cancer_types', 'pair', 'delta_dependency')
+              %>% replace(is.na(.), 0))^2 %>% replace(0 >., 0) %>% replace(0.4 <., 0.4))
+data_pvalue <- (funrar::stack_to_matrix(data, 'cancer_types', 'pair', 'pvalue')
+              %>% replace(is.na(.), 0))
+
+sorted_pairs <- c()
+for(cancerType in unique(data$cancer_types)){
+  top_pairs <- head((data %>%
+                       filter(cancer_types == cancerType))$pair[
+                         order((data %>% filter(cancer_types == cancerType))$pvalue,
+                               decreasing = FALSE)],
+                    10)
+  #(data %>% filter(cancer_types == cancerType))$pair)
+  sorted_pairs <- unique(c(sorted_pairs, top_pairs))
+}
+
+data_dd <- data_dd[unique(data$cancer_types),sorted_pairs]
+data_pvalue <- data_pvalue[unique(data$cancer_types),sorted_pairs]
+
+col_fun = colorRamp2(c(0, 0.4), c("white", "red"))
+
+ht <- Heatmap(
+  # data
+  data_dd,
+  # heatmap body size
+  width = unit(100, "cm"),
+  height = unit(100/3, "cm"),
+  # main legend
+  name = "DD squared",
+  col = col_fun,
+  heatmap_legend_param = list(grid_height = unit(2, "cm"),
+                              legend_width  = unit(12, "cm"),
+                              title_gp = gpar(fontsize = 30),
+                              labels_gp = gpar(fontsize = 25),
+                              border = "gray",
+                              direction = "horizontal",
+                              title_position = "topcenter"),
+  # 2nd legend (#cancers)
+  bottom_annotation = HeatmapAnnotation("number of cancers" = colSums(data_dd != 0),
+                                        col = list("number of cancers" = colorRamp2(c(0, 4), c("white", "blue"))),
+                                        show_annotation_name = FALSE,
+                                        annotation_legend_param = list(grid_height = unit(2,"cm"),
+                                                                       legend_width = unit(12, "cm"),
+                                                                       title_gp = gpar(fontsize = 30),
+                                                                       labels_gp = gpar(fontsize = 25),
+                                                                       border = "gray",
+                                                                       direction = "horizontal",
+                                                                       title_position = "topcenter")
+                                        ),
+  # remove clustering and dendograms
+  show_row_dend = FALSE, show_column_dend = FALSE, cluster_columns = FALSE, cluster_rows = FALSE,
+  # cell border and gaps
+  border_gp = gpar(col = "black", lwd = 5, lty = 50), rect_gp = gpar(col = "white", lwd = 5),
+  # row and col names
+  row_names_side = "left", row_names_gp = gpar(fontsize = 30), column_names_gp = gpar(fontsize = 20),
+  # adding "*" to significant cells
+  layer_fun = function(j, i, x, y, width, height, fill) {
+    v = pindex(data_pvalue, i, j)
+    l = v > 0 & v < 1e-03
+    if(any(l)){
+      grid.text(sprintf(ifelse(v[l], "*", "")), x[l], y[l], gp = gpar(fontsize = 30))
+    }
+  }
+)
+
+jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/all_results_top_pairs.jpeg",sep=""),
+     height = 6000, width = 14500, units = "px", res = 300)
+draw(ht, heatmap_legend_side = "bottom", annotation_legend_side = "bottom")
+dev.off()
+
+```
+
+# RB1-AHR validation
+
+```{r nicer boxplots}
+p1 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Bladder Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Bladder Cancer",
+        driver_gene = "RB1",
+        goi = "AHR",
+        DD_thresh = 0,
+        paper_version = T
+    )
+p2 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Bladder Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Bladder Cancer",
+        driver_gene = "RB1",
+        goi = "CDK2",
+        DD_thresh = 0,
+        paper_version = T
+    )
+boxplots <- ggdraw() +
+    draw_plot(ggarrange(plotlist = list(
+        p1 + ylim(-1.5, 1.1) +
+	ggtitle(label = "AHR", subtitle = strsplit(p1$labels$title, "\n")[[1]][2]),
+        p2 + ylim(-1.5, 1.1) +
+	ggtitle(label = "CDK2", subtitle = strsplit(p2$labels$title, "\n")[[1]][2])
+    ), nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
+    draw_label("Top SLPs for RB1-mutated bladder cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
+
+print(boxplots)
+
+```
+
+```{r get cell line WT/MUT}
+cancerType <- "Bladder Cancer"
+driver_gene <- "RB1"
+
+tmpp <- mutation_matrix[driver_gene,intersect(gsub("-","\\.",(METADATA %>% filter(primary_disease == cancerType))$depmap_id),colnames(mutation_matrix))]
+names(tmpp) <- METADATA[gsub("\\.", "-", names(tmpp)),]$stripped_cell_line_name
+print("Mutated:")
+names(tmpp[tmpp == 1])
+print("WT:")
+names(tmpp[tmpp == 0])
+
+```
+
+```{r survival analysis RB1-MUT vs. RB1-WT - Bad result}
+path <- "/bigdata/zivcohen/SLICE_aux_analysis/RB1_survival_tcga.txt"
+df <- read.table(path, header=T,sep="\t")
+df$OS <- NA
+colnames(df) <- c("sample","group","OS.time","MUT","OS")
+df[df$group=="No mutation",]$OS <- 0
+df[df$group!=0,]$OS <- 1
+
+fit <- survfit(Surv(OS.time, OS) ~ group, data = df %>% mutate(OS.time = OS.time / 12))
+p_value <- survdiff(Surv(OS.time, OS) ~ group, data = df %>% filter(group %in% c("No mutation", "Driver")))
+
+survival_graph <- ggsurvplot(
+  fit,
+  palette = c("black", "red"),
+  pval = FALSE,  # Include p-value
+  conf.int = FALSE,  # Include confidence intervals
+  legend = "right",
+  legend.title = "RB1's mutation status",
+  title = "RB1's prognosis in bladder cancer - Driver vs. WT",
+  xlab = "Time (years)",
+  ylab = "Survival probability",
+  break.x.by = 1,
+  break.y.by = 0.1,
+  xlim = c(0,6),
+  risk.table = TRUE,  # Include risk table
+  risk.table.title = "Risk Table",
+  risk.table.col = "strata",
+  tables.height = 0.2,
+  tables.theme = theme_cleantable(),
+  tables.y.text.col = TRUE
+)
+survival_graph$plot <- survival_graph$plot + 
+  ggplot2::annotate("text", x = 0.8, y = 0.2, # x and y coordinates of the text
+                    label = paste("p =",format(round(p_value$pvalue, 3), nsmall = 3)), size = 5)
+print(survival_graph)
+
+```
+
+```{r differential expression analysis RB1-MUT vs. RB1-WT}
+library(cbioportalR)
+library(dplyr)
+
+set_cbioportal_db("public")
+test_cbioportal_db()
+
+tcga_bladder_metadata <- get_study_info("blca_msk_tcga_2020")
+tcga_bladder_genomics <- get_genetics_by_study(study_id = "blca_msk_tcga_2020")
+tcga_bladder_clinical <- get_clinical_by_study("blca_msk_tcga_2020")
+
+RB1_mutated <- unique(tcga_bladder_genomics$mutation[tcga_bladder_genomics$mutation$hugoGeneSymbol=="RB1",]$patientId)
+RB1_wt <- unique(tcga_bladder_clinical$patientId[!(tcga_bladder_clinical$patientId %in% RB1_mutated)])
+
+```
+
+# Notify me
+
+```{r send message to slack}
+msg <- list(text=paste("shinySLICE - data loading completed:", toc()[4]))
+webhook <- "https://hooks.slack.com/services/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"
+POST(webhook, encode = "json", body = msg)
+
+```

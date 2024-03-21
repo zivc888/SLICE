@@ -1,0 +1,331 @@
+# Import Libraries - Should finish
+
+# Declare Functions (same as in the Data Loader of shinySLICE)
+
+# Read Stored Public Data (DepMap, Surfaceome, MSigDB)
+
+```{r read DepMap data}
+TPM <- read_EH_file("TPM")
+CRISPR <- read_EH_file("CRISPR")
+METADATA <- read_EH_file("METADATA")
+MUT <- read_EH_file("MUT")
+
+row.names(METADATA) <- METADATA$depmap_id
+
+```
+
+```{r read Surfaceome}
+SURF <- read.csv("/bigdata/zivcohen/surfaceome.csv")
+
+```
+
+```{r read gene sets from MSigDB}
+oncogenic_gene_sets <- msigdbr(species = "Homo sapiens", category = "C6")
+gene_sets <- as.list(unique(oncogenic_gene_sets$gs_name))
+names(gene_sets) <- gene_sets
+
+approved_genes <- intersect(unique(TPM$gene_name), unique(oncogenic_gene_sets$gene_symbol))
+
+for (gs in gene_sets) {
+  gene_sets[gs] <- as.list((oncogenic_gene_sets %>%
+                              filter(gs_name == gs) %>%
+                              filter(gene_symbol %in% approved_genes))
+                           ["human_gene_symbol"])
+}
+
+```
+
+```{r read drugable genes from DepMap}
+druggable_genes <- read.csv("/bigdata/zivcohen/DepMap/Corsello.csv")
+druggable_genes <- unique(unlist(strsplit(druggable_genes$target, ", ")))
+druggable_genes <- na.omit(druggable_genes)
+
+```
+
+# Prepare the Data - Should finish
+
+```{r find damaging mutations}
+#Creating a matrix of genes by cell lines with Boolean values stating whether a mutation in a certain gene appears to be damaging a certain cell line according to the MUT database.
+pan_cell_mut <- data.frame("cell_line" = MUT$depmap_id,"gene_name" = MUT$gene_name,"status" = MUT$var_annotation)
+pan_cell_mut["status"][pan_cell_mut["status"] == "damaging"] <- 1
+pan_cell_mut["status"][pan_cell_mut["status"] != 1] <- 0
+pan_cell_mut$status <- as.numeric(pan_cell_mut$status)
+
+pan_cell_mut_mat <- funrar::stack_to_matrix(pan_cell_mut,'gene_name','cell_line','status')
+
+pan_cell_mut_mat[is.na(pan_cell_mut_mat)] = 0
+
+#Filtering the matrix: removing hyper-mutated cells (cells with >100 mutations) and non-driver genes (genes which are found in less than 5 cells).
+tmp <- colSums(pan_cell_mut_mat)
+non_hyper_mut_cells <- names(tmp)[tmp<100]
+
+pan_cell_mut_mat_filt <- pan_cell_mut_mat[,non_hyper_mut_cells]
+
+tmp <- rowSums(pan_cell_mut_mat)
+driver_genes <- names(tmp)[tmp>5]
+
+pan_cell_mut_mat_filt <- pan_cell_mut_mat_filt[driver_genes,]
+
+#Changing >1 values to 1 (this happens because of the "funrar::stack_to_matrix" function)
+pan_cell_mut_mat_filt[pan_cell_mut_mat_filt>1] = 1
+
+```
+
+```{r average}
+#Calculating the average value of each gene based on the matrix from part I. The average is equivalent to the appearance percentage of the gene across all cell lines.
+gene_average <- data.frame("gene_name" = row.names(pan_cell_mut_mat_filt), "average" = 0)
+row.names(gene_average) <- gene_average$gene_name
+
+for(gene in gene_average$gene_name){
+  gene_average[gene,]$average <- mean(pan_cell_mut_mat_filt[gene,])
+}
+
+#Considering common genes as genes that appear in more than 2.5% of the cell lines
+gene_average <- gene_average[gene_average$average>0.025,]
+common_genes <- gene_average$gene_name
+
+```
+
+```{r initializing the pan-cellular map}
+#Creating a matrix of common genes by genes (that appear in the CRISPR database)
+cross_cell_profile <- matrix(nrow = length(common_genes), ncol = length(unique(CRISPR$gene_name)))
+row.names(cross_cell_profile) <- common_genes
+colnames(cross_cell_profile) <- unique(CRISPR$gene_name)
+
+```
+
+```{r preperation for cancer maps}
+valid_cells <- intersect(colnames(pan_cell_mut_mat_filt), unique(CRISPR$depmap_id))
+valid_cells_df <- data.frame("cell_line" = valid_cells)
+valid_cells_df$cancer_type <- METADATA[valid_cells_df$cell_line,]$primary_disease
+row.names(valid_cells_df) <- valid_cells_df$cell_line
+
+#Creating a matrix of significant genes by genes (that appear in the CRISPR database)
+cancer_types <- unique(valid_cells_df$cancer_type)
+driver_count <- data.frame("cancer_type" = cancer_types, "cell_lines" = NA, "num_drivers" = NA, "drivers" = NA)
+row.names(driver_count) <- driver_count$cancer_type
+
+for(cancer in cancer_types){
+  cells <- row.names(valid_cells_df[valid_cells_df$cancer_type == cancer,])
+  driver_count[cancer, ]$cell_lines <- length(cells)
+  
+  if(length(cells) > 1){
+    cancer_mut_mat <- pan_cell_mut_mat_filt[,cells]
+    tmp <- rowSums(cancer_mut_mat)
+    cancer_mut_mat <- cancer_mut_mat[names(tmp)[tmp >= 5], ]
+    
+    driver_count[cancer, ]$num_drivers <- length(row.names(cancer_mut_mat))
+    driver_count[cancer, ]$drivers <- paste(sort(row.names(cancer_mut_mat)), collapse = ", ")
+  }
+}
+
+cancer_types_filt <- driver_count[driver_count$num_drivers > 1 & !is.na(driver_count$num_drivers),]$cancer_type
+
+```
+
+```{r calculating the pan-cellular map}
+#Filling the matrix with the following values: each cell contains the DD between the gene in the corresponding row and the gene in the corresponding column.
+tmp <- DD_profile(cross_cell_profile, pan_cell_mut_mat_filt, unique(CRISPR$depmap_id), T)
+if(type(tmp) == "list"){
+  cross_cell_profile <- tmp[[1]]
+  cross_cell_profile_target <- tmp[[2]]
+} else{
+  cross_cell_profile <- tmp
+}
+
+
+#Removing rows and columns without non-zero values.
+tmp1 <- rowSums(abs(cross_cell_profile))
+tmp2 <- colSums(abs(cross_cell_profile))
+cross_cell_profile_filt <- cross_cell_profile[names(tmp1)[tmp1>0], names(tmp2)[tmp2>0]]
+
+tmp1 <- rowSums(abs(cross_cell_profile_target))
+tmp2 <- colSums(abs(cross_cell_profile_target))
+cross_cell_profile_target_filt <- cross_cell_profile_target[names(tmp1)[tmp1>0], names(tmp2)[tmp2>0]]
+
+```
+
+# Save the Data - Should finish
+
+```{r driver genes}
+write_lines(common_genes, "/bigdata/zivcohen/ShinyData/common_genes.txt")
+
+```
+
+```{r MUT/pan}
+# Create empty lists to store LFC and p-value vectors
+lfc_list <- list()
+pvalue_list <- list()
+
+# Loop for generating volcano plots
+for (gene in common_genes) {
+  tic(gene)
+  # Perform analysis and generate volcano plot for each gene
+  df <- DD_profile(cross_cell_profile, pan_cell_mut_mat_filt, unique(CRISPR$depmap_id),
+                   return_p_value_for_gene = c(T, gene))
+  
+  df <- df[, c("gene_name", "estimate", "estimate1", "estimate2", "qvalue")]
+  df$estimate1 <- df$estimate2 - df$estimate1
+  
+  df <- df[, c("gene_name", "estimate1", "qvalue")]
+  colnames(df) <- c("gene_name", "LFC", "qvalue")
+  
+  lfc <- df$LFC
+  names(lfc) <- df$gene_name
+  pvalue <- df$qvalue
+  names(pvalue) <- df$gene_name
+  
+  lfc_list[[gene]] <- lfc
+  pvalue_list[[gene]] <- pvalue
+  toc()
+}
+
+# Convert lists to matrices
+lfc_matrix <- do.call(rbind, lfc_list)
+pvalue_matrix <- do.call(rbind, pvalue_list)
+
+
+write.table(lfc_matrix, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/lfc_matrix.csv", sep = ",", row.names = TRUE)
+write.table(pvalue_matrix, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/pvalue_matrix.csv", sep = ",", row.names = TRUE)
+
+```
+
+```{r MUT/specific}
+for(cancer in cancer_types_filt){
+  tic(cancer)
+  # Create empty lists to store LFC and p-value vectors
+  lfc_list <- list()
+  pvalue_list <- list()
+  
+  #duplicated part for run-time's sake
+  cells <- row.names(valid_cells_df[valid_cells_df$cancer_type == cancer,])
+  cancer_mut_mat <- pan_cell_mut_mat_filt[,cells]
+  tmp <- rowSums(cancer_mut_mat)
+  cancer_mut_mat <- cancer_mut_mat[names(tmp)[tmp >= 5], ]
+  #
+  
+  #preparation of the base mtrix of the cancer profile
+  cancer_profile <- matrix(nrow = length(row.names(cancer_mut_mat)), ncol = length(unique(CRISPR$gene_name)))
+  row.names(cancer_profile) <- row.names(cancer_mut_mat)
+  colnames(cancer_profile) <- unique(CRISPR$gene_name)
+  #
+  
+  # Loop for generating volcano plots
+  for (gene in row.names(cancer_profile)) {
+    # Perform analysis and generate volcano plot for each gene
+    df <- DD_profile(cancer_profile, cancer_mut_mat, cells,
+                     return_p_value_for_gene = c(T, gene))
+    
+    df <- df[, c("gene_name", "estimate", "estimate1", "estimate2", "qvalue")]
+    df$estimate1 <- df$estimate2 - df$estimate1
+    
+    df <- df[, c("gene_name", "estimate1", "qvalue")]
+    colnames(df) <- c("gene_name", "LFC", "qvalue")
+    
+    lfc <- df$LFC
+    names(lfc) <- df$gene_name
+    pvalue <- df$qvalue
+    names(pvalue) <- df$gene_name
+    
+    lfc_list[[gene]] <- lfc
+    pvalue_list[[gene]] <- pvalue
+  }
+  
+  # Convert lists to matrices
+  lfc_matrix <- do.call(rbind, lfc_list)
+  pvalue_matrix <- do.call(rbind, pvalue_list)
+  
+  write.table(lfc_matrix,
+              file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/lfc_",gsub("/", " ", cancer),".csv", sep=""),
+              sep = ",", row.names = TRUE)
+  write.table(pvalue_matrix,
+              file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/pvalue_",gsub("/", " ", cancer),".csv", sep=""),
+              sep = ",", row.names = TRUE)
+  
+  toc()
+}
+
+```
+
+```{r calculating the cancer-specific maps}
+ind <- 1
+for(cancer in cancer_types_filt){
+  tic(paste(c("Cancer",ind, "/", length(cancer_types_filt), "(", cancer, ")"),collapse=" "))
+  
+  #duplicated part for run-time's sake
+  cells <- row.names(valid_cells_df[valid_cells_df$cancer_type == cancer,])
+  cancer_mut_mat <- pan_cell_mut_mat_filt[,cells]
+  tmp <- rowSums(cancer_mut_mat)
+  cancer_mut_mat <- cancer_mut_mat[names(tmp)[tmp >= 5], ]
+  #
+  
+  #preparation of the base mtrix of the cancer profile
+  cancer_profile <- matrix(nrow = length(row.names(cancer_mut_mat)), ncol = length(unique(CRISPR$gene_name)))
+  row.names(cancer_profile) <- row.names(cancer_mut_mat)
+  colnames(cancer_profile) <- unique(CRISPR$gene_name)
+  #
+  
+  tmp <- DD_profile(cancer_profile, cancer_mut_mat, cells, T)
+  if(type(tmp) == "list"){
+    cancer_profile <- tmp[[1]]
+    cancer_profile_target <- tmp[[2]]
+  } else{
+    cancer_profile <- tmp
+  }
+
+  
+  tmp <- colSums(abs(cancer_profile))
+  cancer_profile_filt <- cancer_profile[, names(tmp)[tmp>0]]
+  
+  tmp <- colSums(abs(cancer_profile_target))
+  cancer_profile_target_filt <- cancer_profile_target[, names(tmp)[tmp>0]]
+  
+  write.table(cancer_profile_filt, file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/dependencyProfile_",
+                                                    gsub("/", " ", cancer),".csv", sep=""),
+              sep = ",", row.names = TRUE)
+  write.table(cancer_profile_target_filt, file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/dependencyProfile_targetable_",
+                                                    gsub("/", " ", cancer),".csv", sep=""),
+              sep = ",", row.names = TRUE)
+  
+  toc()
+  ind <- ind+1
+}
+
+```
+
+```{r expression/pan}
+correlation_df <- large_enrichment_analysis(unique(CRISPR$gene_name), approved_genes)
+
+
+write.csv(correlation_df,
+          file = paste("/bigdata/zivcohen/ShinyData/Expression/Pan/dependency_corr.csv", sep=""))
+
+```
+
+```{r expression/specific}
+for(current_cancer_type in filtered_primary_disease[19:length(filtered_primary_disease)]){
+  tic(current_cancer_type)
+  
+  tmpMETADATA <- METADATA
+  tmpMETADATA$primary_disease <- gsub("/", " ", tmpMETADATA$primary_disease)
+  current_depmap_ids <- tmpMETADATA$depmap_id[tmpMETADATA$primary_disease ==
+                                                current_cancer_type]
+  
+  genes_to_process <- unique(CRISPR$gene_name)
+  correlation_df <- enrichment_analysis(genes_to_process, current_depmap_ids, approved_genes)
+  
+  
+  write.csv(correlation_df,
+            file = paste("/bigdata/zivcohen/ShinyData/Expression/Specific/",current_cancer_type,"_corr.csv", sep=""))
+  toc()
+}
+
+```
+
+```{r cancer maps}
+write.table(cross_cell_profile_filt, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/dependencyProfile_matrix.csv", sep = ",", row.names = TRUE)
+write.table(cross_cell_profile_target_filt, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/dependencyProfile_targetable_matrix.csv", sep = ",", row.names = TRUE)
+
+write.table(pan_cell_mut_mat_filt, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/mutation_matrix.csv", sep = ",", row.names = TRUE)
+
+```
