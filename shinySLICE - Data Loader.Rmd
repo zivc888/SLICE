@@ -621,7 +621,7 @@ for(current_cancer_type in primary_disease){
 
 ```{r send message to slack}
 msg <- list(text=paste("shinySLICE - data loading completed:", toc()[4]))
-webhook <- "https://hooks.slack.com/services/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"
+webhook <- "???"
 POST(webhook, encode = "json", body = msg)
 
 ```

@@ -868,7 +868,7 @@ RB1_wt <- unique(tcga_bladder_clinical$patientId[!(tcga_bladder_clinical$patient
 
 ```{r send message to slack}
 msg <- list(text=paste("shinySLICE - data loading completed:", toc()[4]))
-webhook <- "https://hooks.slack.com/services/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"
+webhook <- "???"
 POST(webhook, encode = "json", body = msg)
 
 ```
