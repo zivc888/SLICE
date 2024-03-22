@@ -376,6 +376,51 @@ SLICE’s results.</p>
 insight on the results.</p>
 </div>
 </div>
+<div id="things-that-need-to-be-done" class="section level2">
+<h2>Things that need to be done:</h2>
+<div id="in-the-figures" class="section level3">
+<h3>In the figures</h3>
+<ul>
+<li>Changing the volcano visualiztion for the paper (currently using
+plotly which is interactive but ugly)</li>
+<li>Changing the network visualiztion for the paper (currently using
+plotly which is interactive but ugly)</li>
+</ul>
+</div>
+<div id="in-the-shiny-application" class="section level3">
+<h3>In the shiny application</h3>
+<ul>
+<li>Fix the bug regarding the coloring of the network’s edges (happens
+only when there are multiple “hubs”)</li>
+<li>Improve on the BFS algorithm in the shiny app so it would use
+weights to find the best shortest path instead of just the first
+shortest path (take into consideration that it will make it run
+exponentially slower)</li>
+<li>Add a checkbox to filter all driver genes that are not mutated in
+over 15% of the patients (the frequencies are calculated in the analysis
+part, it probably would be best to first calculate them in the “Data
+Creation” script, save them to a file and then load them in the “Data
+Loader” because it takes a loooong time)</li>
+</ul>
+</div>
+<div id="in-the-actual-analysis" class="section level3">
+<h3>In the actual analysis</h3>
+<ul>
+<li>Fix the ssGSEA function (ideally replace the implementation of the
+current functiion with a call to an existing function)</li>
+<li>Find some dataset to calculate driver mutation frequencies in
+pan-cancer</li>
+</ul>
+<div id="potentially" class="section level4">
+<h4>Potentially:</h4>
+<ul>
+<li>Differential gene expression analysis between RB1-WT and RB1-MUT
+bladder cells.</li>
+<li>Survival analysis between RB1-WT and RB1-MUT bladder cells.</li>
+</ul>
+</div>
+</div>
+</div>
 </div>
 
 
