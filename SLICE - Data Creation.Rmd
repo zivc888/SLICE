@@ -1,8 +1,8 @@
-# Import Libraries - Should finish
+# Import Libraries and Functions
 
-# Declare Functions (same as in the Data Loader of shinySLICE)
+Remember to run 'Functions.Rmd' before this script!
 
-# Read Stored Public Data (DepMap, Surfaceome, MSigDB)
+# Read Stored Public Data (DepMap, MSigDB)
 
 ```{r read DepMap data}
 TPM <- read_EH_file("TPM")
@@ -11,11 +11,6 @@ METADATA <- read_EH_file("METADATA")
 MUT <- read_EH_file("MUT")
 
 row.names(METADATA) <- METADATA$depmap_id
-
-```
-
-```{r read Surfaceome}
-SURF <- read.csv("/bigdata/zivcohen/surfaceome.csv")
 
 ```
 

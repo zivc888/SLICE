@@ -356,34 +356,76 @@ display: none;
 <h1>SLICE</h1>
 <div id="code-files" class="section level2">
 <h2>Code Files:</h2>
+<div id="functions.rmd" class="section level3">
+<h3>Functions.Rmd</h3>
+<p>Used to load packages and functions relevant for SLICE.</p>
+</div>
 <div id="slice---data-creation.rmd" class="section level3">
 <h3>SLICE - Data Creation.Rmd</h3>
 <p>Used to create the data for SLICE.</p>
+<div id="requirments" class="section level4">
+<h4>Requirments:</h4>
+<ul>
+<li>Run ‘Functions.Rmd’ at the start of each session.</li>
+</ul>
 </div>
-<div id="shinyslice---data-loader.rmd" class="section level3">
-<h3>shinySLICE - Data Loader.Rmd</h3>
+</div>
+<div id="slice---data-loader.rmd" class="section level3">
+<h3>SLICE - Data Loader.Rmd</h3>
 <p>Used to load the data created by the previous script into the R
 environment.</p>
+<div id="requirments-1" class="section level4">
+<h4>Requirments:</h4>
+<ul>
+<li>Run ‘Functions.Rmd’ at the start of each session.</li>
+<li>Run ‘SLICE - Data Creation.Rmd’ at least once.</li>
+</ul>
 </div>
-<div id="shinyslice.r" class="section level3">
-<h3>shinySLICE.R</h3>
-<p>The shiny R application used for the exploration of the data and
-SLICE’s results.</p>
 </div>
 <div id="slice---analysing-results.rmd" class="section level3">
 <h3>SLICE - Analysing Results.Rmd</h3>
 <p>A script used to analyse the results of SLICE and provide further
 insight on the results.</p>
+<div id="requirments-2" class="section level4">
+<h4>Requirments:</h4>
+<ul>
+<li>Run ‘Functions.Rmd’ and ‘SLICE - Data Loader.Rmd’ at the start of
+each session.</li>
+<li>Run ‘SLICE - Data Creation.Rmd’ at least once.</li>
+</ul>
+</div>
+</div>
+<div id="shinyslice.r" class="section level3">
+<h3>shinySLICE.R</h3>
+<p>The shiny R application used for the exploration of the data and
+SLICE’s results.</p>
+<div id="requirments-3" class="section level4">
+<h4>Requirments:</h4>
+<ul>
+<li>Run ‘Functions.Rmd’ and ‘SLICE - Data Loader.Rmd’ at the start of
+each session.</li>
+<li>Run ‘SLICE - Data Creation.Rmd’ at least once.</li>
+</ul>
+</div>
 </div>
 </div>
 <div id="things-that-need-to-be-done" class="section level2">
 <h2>Things that need to be done:</h2>
+<div id="in-the-actual-analysis" class="section level3">
+<h3>In the actual analysis</h3>
+<ul>
+<li>Fix the ssGSEA function (ideally replace the implementation of the
+current functiion with a call to an existing function)</li>
+<li>Find some dataset to calculate driver mutation frequencies in
+pan-cancer</li>
+</ul>
+</div>
 <div id="in-the-figures" class="section level3">
 <h3>In the figures</h3>
 <ul>
-<li>Changing the volcano visualiztion for the paper (currently using
+<li>Changing the volcano visualization for the paper (currently using
 plotly which is interactive but ugly)</li>
-<li>Changing the network visualiztion for the paper (currently using
+<li>Changing the network visualization for the paper (currently using
 plotly which is interactive but ugly)</li>
 </ul>
 </div>
@@ -401,15 +443,6 @@ over 15% of the patients (the frequencies are calculated in the analysis
 part, it probably would be best to first calculate them in the “Data
 Creation” script, save them to a file and then load them in the “Data
 Loader” because it takes a loooong time)</li>
-</ul>
-</div>
-<div id="in-the-actual-analysis" class="section level3">
-<h3>In the actual analysis</h3>
-<ul>
-<li>Fix the ssGSEA function (ideally replace the implementation of the
-current functiion with a call to an existing function)</li>
-<li>Find some dataset to calculate driver mutation frequencies in
-pan-cancer</li>
 </ul>
 <div id="potentially" class="section level4">
 <h4>Potentially:</h4>

@@ -1,5 +1,7 @@
 # Import Libraries
 
+Remember to run 'Functions.Rmd' and 'SLICE - Data Loader.Rmd' before this script!
+
 ```{r}
 library(circlize)
 library(readr)
