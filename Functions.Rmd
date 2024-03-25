@@ -33,8 +33,7 @@ library(httr)
 # The read_EH_file function is used to read saved Experiment-Hub data (.csv) from a specific folder.
 # Note: if you change the path to the folder of the DepMap files, change the variable "containing_folder" inside the function.
 
-read_EH_file <- function(file_name){
-  containing_folder <- "/bigdata/zivcohen/DepMap/"
+read_EH_file <- function(file_name, containing_folder){
   file <- read.csv(paste(c(containing_folder, file_name, ".csv"), collapse=""))
   row.names(file) <- file[,1]
   file <- file[,!(names(file) %in% "X")]
@@ -44,7 +43,7 @@ read_EH_file <- function(file_name){
 ```
 
 ```{r - DD_profile()}
-# The DD_profile function is used to create a 
+# I think it calculates the DD and p-value for the driver-gene-oriented analysis but I'm not sure... Anyway it's an internal function that you probably won't have to use yourself.
 
 #gets:
 #     base_mat - an empty matrix of GOIs (genes of interest) by genes

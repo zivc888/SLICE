@@ -2,13 +2,22 @@
 
 Remember to run 'Functions.Rmd' before this script!
 
+```{r paths}
+DEPMAP_FILES_FOLDER <- "/bigdata/zivcohen/DepMap/"
+COMMON_GENES_FILE <- "/bigdata/zivcohen/ShinyData/common_genes.txt"
+PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/MUT/Pan/"
+CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/MUT/Specific/"
+PATHWAY_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/Expression/"
+
+```
+
 # Read Stored Public Data (DepMap, MSigDB)
 
 ```{r read DepMap data}
-TPM <- read_EH_file("TPM")
-CRISPR <- read_EH_file("CRISPR")
-METADATA <- read_EH_file("METADATA")
-MUT <- read_EH_file("MUT")
+TPM <- read_EH_file("TPM", DEPMAP_FILES_FOLDER)
+CRISPR <- read_EH_file("CRISPR", DEPMAP_FILES_FOLDER)
+METADATA <- read_EH_file("METADATA", DEPMAP_FILES_FOLDER)
+MUT <- read_EH_file("MUT", DEPMAP_FILES_FOLDER)
 
 row.names(METADATA) <- METADATA$depmap_id
 
@@ -31,7 +40,7 @@ for (gs in gene_sets) {
 ```
 
 ```{r read drugable genes from DepMap}
-druggable_genes <- read.csv("/bigdata/zivcohen/DepMap/Corsello.csv")
+druggable_genes <- read.csv(paste(DEPMAP_FILES_FOLDER,"/Corsello.csv",sep=""))
 druggable_genes <- unique(unlist(strsplit(druggable_genes$target, ", ")))
 druggable_genes <- na.omit(druggable_genes)
 
@@ -143,7 +152,7 @@ cross_cell_profile_target_filt <- cross_cell_profile_target[names(tmp1)[tmp1>0],
 # Save the Data - Should finish
 
 ```{r driver genes}
-write_lines(common_genes, "/bigdata/zivcohen/ShinyData/common_genes.txt")
+write_lines(common_genes, COMMON_GENES_FILE)
 
 ```
 
@@ -180,8 +189,8 @@ lfc_matrix <- do.call(rbind, lfc_list)
 pvalue_matrix <- do.call(rbind, pvalue_list)
 
 
-write.table(lfc_matrix, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/lfc_matrix.csv", sep = ",", row.names = TRUE)
-write.table(pvalue_matrix, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/pvalue_matrix.csv", sep = ",", row.names = TRUE)
+write.table(lfc_matrix, file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_DATA,"lfc_matrix.csv",sep=""), sep = ",", row.names = TRUE)
+write.table(pvalue_matrix, file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_DATA,"pvalue_matrix.csv",sep=""), sep = ",", row.names = TRUE)
 
 ```
 
@@ -231,10 +240,10 @@ for(cancer in cancer_types_filt){
   pvalue_matrix <- do.call(rbind, pvalue_list)
   
   write.table(lfc_matrix,
-              file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/lfc_",gsub("/", " ", cancer),".csv", sep=""),
+              file = paste(CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX,"lfc_",gsub("/", " ", cancer),".csv", sep=""),
               sep = ",", row.names = TRUE)
   write.table(pvalue_matrix,
-              file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/pvalue_",gsub("/", " ", cancer),".csv", sep=""),
+              file = paste(CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX,"pvalue_",gsub("/", " ", cancer),".csv", sep=""),
               sep = ",", row.names = TRUE)
   
   toc()
@@ -275,10 +284,10 @@ for(cancer in cancer_types_filt){
   tmp <- colSums(abs(cancer_profile_target))
   cancer_profile_target_filt <- cancer_profile_target[, names(tmp)[tmp>0]]
   
-  write.table(cancer_profile_filt, file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/dependencyProfile_",
+  write.table(cancer_profile_filt, file = paste(CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_",
                                                     gsub("/", " ", cancer),".csv", sep=""),
               sep = ",", row.names = TRUE)
-  write.table(cancer_profile_target_filt, file = paste("/bigdata/zivcohen/ShinyData/MUT/Specific/dependencyProfile_targetable_",
+  write.table(cancer_profile_target_filt, file = paste(CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_targetable_",
                                                     gsub("/", " ", cancer),".csv", sep=""),
               sep = ",", row.names = TRUE)
   
@@ -293,7 +302,7 @@ correlation_df <- large_enrichment_analysis(unique(CRISPR$gene_name), approved_g
 
 
 write.csv(correlation_df,
-          file = paste("/bigdata/zivcohen/ShinyData/Expression/Pan/dependency_corr.csv", sep=""))
+          file = paste(PATHWAY_ANALYSIS_PREFIX, "Pan/dependency_corr.csv", sep=""))
 
 ```
 
@@ -311,16 +320,22 @@ for(current_cancer_type in filtered_primary_disease[19:length(filtered_primary_d
   
   
   write.csv(correlation_df,
-            file = paste("/bigdata/zivcohen/ShinyData/Expression/Specific/",current_cancer_type,"_corr.csv", sep=""))
+            file = paste(PATHWAY_ANALYSIS_PREFIX, "Specific/",current_cancer_type,"_corr.csv", sep=""))
   toc()
 }
 
 ```
 
 ```{r cancer maps}
-write.table(cross_cell_profile_filt, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/dependencyProfile_matrix.csv", sep = ",", row.names = TRUE)
-write.table(cross_cell_profile_target_filt, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/dependencyProfile_targetable_matrix.csv", sep = ",", row.names = TRUE)
+write.table(cross_cell_profile_filt,
+            file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_matrix.csv",sep=""),
+            sep = ",", row.names = TRUE)
+write.table(cross_cell_profile_target_filt,
+            file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_targetable_matrix.csv",sep=""),
+            sep = ",", row.names = TRUE)
 
-write.table(pan_cell_mut_mat_filt, file = "/bigdata/zivcohen/ShinyData/MUT/Pan/mutation_matrix.csv", sep = ",", row.names = TRUE)
+write.table(pan_cell_mut_mat_filt,
+            file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"mutation_matrix.csv",sep=""),
+            sep = ",", row.names = TRUE)
 
 ```

@@ -12,6 +12,12 @@ tic()
 
 ```
 
+```{r paths}
+DEPENDENCY_PROFILES_HEATMAP_PATH <- "/bigdata/zivcohen/graphs/dependency_profiles/"
+SURVIVAL_DATA_TCGA <- "/bigdata/zivcohen/SLICE_aux_analysis/RB1_survival_tcga.txt"
+
+```
+
 # Filtering SLICE's results (final step in the funnel)
 
 ```{r filtering pSLPs - only targetable partners}
@@ -462,14 +468,14 @@ for(cancerType in names(mut_spec_pvalues)){
   ht_maps <- c(ht_maps, ht)
   
   if(cancerType == "Lung Cancer"){
-    jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
        height = 1000, width = 1600, units = "px", res = 100)
     draw(ht)
     dev.off()
     next
   }
   
-  jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+  jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
        height = 600, width = 1600, units = "px", res = 200)
   draw(ht)
   dev.off()
@@ -568,14 +574,14 @@ for(cancerType in names(mut_spec_pvalues)){
   ht_maps <- c(ht_maps, ht)
   
   if(cancerType == "Lung Cancer"){
-    jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
        height = 1000, width = 2500, units = "px", res = 100)
     draw(ht)
     dev.off()
     next
   }
   
-  jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/",cancerType,".jpeg",sep=""),
+  jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
        height = 600, width = 1800, units = "px", res = 200)
   draw(ht)
   dev.off()
@@ -587,8 +593,8 @@ for(cancerType in names(mut_spec_pvalues)){
 library("colorspace")
 library(ComplexHeatmap)
 
-drivers <- read_lines("/bigdata/zivcohen/graphs/dependency_profiles/rows.txt")
-partners <- read_lines("/bigdata/zivcohen/graphs/dependency_profiles/cols.txt")
+drivers <- read_lines(pate(DEPENDENCY_PROFILES_HEATMAP_PATH,"rows.txt",sep=""))
+partners <- read_lines(pate(DEPENDENCY_PROFILES_HEATMAP_PATH,"cols.txt",sep=""))
 
 data_dds <- list()
 data_pvalues <- list()
@@ -675,7 +681,7 @@ ht <- Heatmap(
 lgd = Legend(labels = names(mut_spec_pvalues), legend_gp = gpar(fill = color_list), title = "Cancer Types", 
     ncol = 1, title_position = "leftcenter")
 
-jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/all_results_circles.jpeg",sep=""),
+jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,"all_results_circles.jpeg",sep=""),
      height = 5000, width = 10000, units = "px", res = 200)
 draw(ht)
 draw(lgd, x = unit(0.01, "npc"), y = unit(0.5, "npc"), just = c("left"))
@@ -756,7 +762,7 @@ ht <- Heatmap(
   }
 )
 
-jpeg(paste("/bigdata/zivcohen/graphs/dependency_profiles/all_results_top_pairs.jpeg",sep=""),
+jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,"all_results_top_pairs.jpeg",sep=""),
      height = 6000, width = 14500, units = "px", res = 300)
 draw(ht, heatmap_legend_side = "bottom", annotation_legend_side = "bottom")
 dev.off()
@@ -813,8 +819,7 @@ names(tmpp[tmpp == 0])
 ```
 
 ```{r survival analysis RB1-MUT vs. RB1-WT - Bad result}
-path <- "/bigdata/zivcohen/SLICE_aux_analysis/RB1_survival_tcga.txt"
-df <- read.table(path, header=T,sep="\t")
+df <- read.table(SURVIVAL_DATA_TCGA, header=T,sep="\t")
 df$OS <- NA
 colnames(df) <- c("sample","group","OS.time","MUT","OS")
 df[df$group=="No mutation",]$OS <- 0
