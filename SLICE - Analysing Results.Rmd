@@ -575,7 +575,35 @@ for(cancerType in names(mut_spec_pvalues)){
   
   if(cancerType == "Lung Cancer"){
     jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
-       height = 1000, width = 2500, units = "px", res = 100)
+       height = 1000, width = 5000, units = "px", res = 100)
+    draw(ht)
+    dev.off()
+    next
+  }
+  if(cancerType == "Ovarian Cancer"){
+    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+       height = 600, width = 2500, units = "px", res = 200)
+    draw(ht)
+    dev.off()
+    next
+  }
+  if(cancerType == "Skin Cancer"){
+    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+       height = 1000, width = 5000, units = "px", res = 200)
+    draw(ht)
+    dev.off()
+    next
+  }
+  if(cancerType == "Brain Cancer"){
+    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+       height = 600, width = 2500, units = "px", res = 200)
+    draw(ht)
+    dev.off()
+    next
+  }
+  if(cancerType == "Head and Neck Cancer"){
+    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+       height = 600, width = 2200, units = "px", res = 200)
     draw(ht)
     dev.off()
     next
@@ -815,6 +843,8 @@ print("Mutated:")
 names(tmpp[tmpp == 1])
 print("WT:")
 names(tmpp[tmpp == 0])
+
+print(length(names(tmpp[tmpp == 1])) / length(names(tmpp)))
 
 ```
 
