@@ -901,6 +901,155 @@ RB1_wt <- unique(tcga_bladder_clinical$patientId[!(tcga_bladder_clinical$patient
 
 ```
 
+
+# Additional boxplots
+
+```{r breast}
+p1 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Breast Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Breast Cancer",
+        driver_gene = "TTN",
+        goi = "GLS",
+        DD_thresh = 0,
+        paper_version = T
+    )
+p2 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Breast Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Breast Cancer",
+        driver_gene = "TTN",
+        goi = "ARPC2",
+        DD_thresh = 0,
+        paper_version = T
+    )
+boxplots <- ggdraw() +
+    draw_plot(ggarrange(plotlist = list(
+        p1 + ylim(-1.0, 0.5) +
+	ggtitle(label = "GLS", subtitle = strsplit(p1$labels$title, "\n")[[1]][2]),
+        p2 + ylim(-1.0, 0.5) +
+	ggtitle(label = "ARPC2", subtitle = strsplit(p2$labels$title, "\n")[[1]][2])
+    ), nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
+    draw_label("Top SLPs for TTN-mutated breast cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
+
+print(boxplots)
+
+```
+
+```{r ovarian}
+p1 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Ovarian Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Ovarian Cancer",
+        driver_gene = "TP53",
+        goi = "PTPN11",
+        DD_thresh = 0,
+        paper_version = T
+    )
+boxplots <- ggdraw() +
+    draw_plot(ggarrange(plotlist = list(
+        p1 + ylim(-1.2, 0.2) +
+	ggtitle(label = "PTPN11", subtitle = strsplit(p1$labels$title, "\n")[[1]][2])),
+    nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
+    draw_label("Top SLP for TP53-mutated ovarian cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
+
+print(boxplots)
+
+```
+
+```{r lymphoma}
+p1 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Lymphoma"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Lymphoma",
+        driver_gene = "KMT2D",
+        goi = "SLC15A4",
+        DD_thresh = 0,
+        paper_version = T
+    )
+p2 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Lymphoma"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Lymphoma",
+        driver_gene = "KMT2D",
+        goi = "ATP1A2",
+        DD_thresh = 0,
+        paper_version = T
+    )
+boxplots <- ggdraw() +
+    draw_plot(ggarrange(plotlist = list(
+        p1 + ylim(-0.4, 0.6) +
+	ggtitle(label = "SLC15A4", subtitle = strsplit(p1$labels$title, "\n")[[1]][2]),
+        p2 + ylim(-0.4, 0.6) +
+	ggtitle(label = "ATP1A2", subtitle = strsplit(p2$labels$title, "\n")[[1]][2])
+    ), nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
+    draw_label("Top SLPs for KMT2D-mutated lymphoma cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
+
+print(boxplots)
+
+```
+
+```{r lung}
+p1 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Lung Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Lung Cancer",
+        driver_gene = "RYR2",
+        goi = "BCL2L1",
+        DD_thresh = 0,
+        paper_version = T
+    )
+boxplots <- ggdraw() +
+    draw_plot(ggarrange(plotlist = list(
+        p1 + ylim(-2.5, 0.1) +
+	ggtitle(label = "BCL2L1", subtitle = strsplit(p1$labels$title, "\n")[[1]][2])),
+    nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
+    draw_label("Top SLP for RYR2-mutated lung cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
+
+print(boxplots)
+
+```
+
+```{r skin}
+p1 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Skin Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Skin Cancer",
+        driver_gene = "TPTE",
+        goi = "GRIN2C",
+        DD_thresh = 0,
+        paper_version = T
+    )
+p2 <- box_profile(
+        profile_mat = mut_spec_dependencyProfiles[["Skin Cancer"]],
+        mut_mat = mutation_matrix,
+        type = "specific",
+        cancer_type = "Skin Cancer",
+        driver_gene = "TP53",
+        goi = "ATP2A2",
+        DD_thresh = 0,
+        paper_version = T
+    )
+boxplots <- ggdraw() +
+    draw_plot(ggarrange(plotlist = list(
+        p1 + ylim(-2, 0.5) +
+	ggtitle(label = "GRIN2C in TPTE-mutated cells", subtitle = strsplit(p1$labels$title, "\n")[[1]][2]),
+        p2 + ylim(-2, 0.5) +
+	ggtitle(label = "ATP2A2 in TP53-mutated cells", subtitle = strsplit(p2$labels$title, "\n")[[1]][2])
+    ), nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
+    draw_label("Top SLPs for skin cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
+
+print(boxplots)
+
+```
+
 # Notify me
 
 ```{r send message to slack}
