@@ -1,0 +1,2467 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-04-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+mut_spec_lfcs %>% str
+```
+
+```{r}
+values <- list()
+values$selectedDriverGene = 'RB1'
+values$selectedCancerType = 'Bladder Cancer'
+
+lfc <-
+  mut_spec_lfcs[[values$selectedCancerType]][values$selectedDriverGene, ]
+pvalue <-
+  mut_spec_pvalues[[values$selectedCancerType]][values$selectedDriverGene, ]
+
+
+df <-
+  data.frame(
+    "gene_name" = names(lfc),
+    "LFC" = lfc,
+    "qvalue" = pvalue
+  )
+
+# Load genes set
+druggable_genes <- read.csv("Corsello.csv")
+druggable_genes <- unique(unlist(strsplit(druggable_genes$target, ", ")))
+druggable_genes <- na.omit(druggable_genes)
+
+lfc_threshold = 0.2
+qval_threshold = 0.05 
+  
+test2 <- df %>%
+  dplyr::mutate(color = case_when(
+    ( (gene_name %in% druggable_genes) & ( (abs(LFC) > lfc_threshold) & (qvalue < qval_threshold) ) ) ~ 'red',
+                                  ( (gene_name %in% druggable_genes) & (abs(LFC) < lfc_threshold | qvalue > qval_threshold) )~ 'blue',
+                                  T ~ 'grey') ) %>% 
+  filter(gene_name %in% c("AHR", "CDK2"))
+  
+p <- df %>%
+  dplyr::mutate(color = case_when(
+    ( (gene_name %in% druggable_genes) & ( (abs(LFC) > lfc_threshold) & (qvalue < qval_threshold) ) ) ~ 'red',
+                                  ( (gene_name %in% druggable_genes) & (abs(LFC) < lfc_threshold | qvalue > qval_threshold) )~ 'blue',
+                                  T ~ 'grey') ) %>%
+  ggplot(aes(-LFC, -log10(qvalue), color = color)) +
+  scale_discrete_manual('color', values = c('black',  'blue', 'grey', 'red')) +
+  geom_point(position = position_jitter(height = 0.03)) +
+  geom_hline(yintercept = -log10(qval_threshold), linetype='dashed', color='green') +
+  geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype='dashed', color='green') +
+  geom_segment(data=test2, aes(x = -LFC+0.1, y = -log10(qvalue)+0.2, xend = -LFC+0.02, yend = -log10(qvalue)+0.02),
+                  arrow = arrow(length = unit(0.2, "cm")), color='black') +
+  geom_text( data = test2,
+     aes (-LFC, -log10(qvalue), label = gene_name, size = 4, colour = ""),  vjust = -1, hjust = -1) +   
+  theme_bw()+
+  xlim(c(-1, 1)) +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20)) +
+  xlab('Delta-Dependency (DD)') +
+  ylab('-log10(p-value)') +
+  ggtitle('RB1-WT vs. RB1-mutated in Bladder Cancer cells') 
+
+ggsave(path = "plots/",
+       device = "png", filename = "volcano_plot.png", plot = p,
+       width = 8, height = 5)
+```
+
+
+```{r fig.height=8, fig.width=5}
+values$selectedCancerType
+
+# Load specific
+# Cancer-specific level
+# mut_spec_dependencyProfiles <- list()
+# mut_spec_dependencyProfiles_targetable <- list()
+# 
+# primary_disease <- gsub("/", " ", cancer_types_filt)
+# 
+# for(current_cancer_type in primary_disease){
+#   mut_spec_dependencyProfiles[[current_cancer_type]] <- as.matrix(read.csv(
+#     paste(CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_",
+#           current_cancer_type, ".csv", sep="")))
+#   mut_spec_dependencyProfiles_targetable[[current_cancer_type]] <- as.matrix(read.csv(
+#     paste(CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_targetable_",
+#           current_cancer_type, ".csv", sep="")))
+# }
+p2 <- box_profile(profile_mat = mut_spec_dependencyProfiles$`Bladder Cancer`,
+              mut_mat = mutation_matrix,
+              type = 'specific',
+              cancer_type = values$selectedCancerType,
+              driver_gene = 'RB1',
+              goi = 'CDK2',
+              DD_thresh = 0,
+              paper_version = T) +
+  ylim(c(-1.5, 1.1)) +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20)) +
+  xlab('RB1 Mutation Status') +
+  ylab('CDK2 Dependency Score') +
+  ggtitle('')
+
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_CDK2.png", plot = p2,
+       width = 5, height = 7)
+
+p3 <- box_profile(profile_mat = mut_spec_dependencyProfiles$`Bladder Cancer`,
+              mut_mat = mutation_matrix,
+              type = 'specific',
+              cancer_type = values$selectedCancerType,
+              driver_gene = 'RB1',
+              goi = 'AHR',
+              DD_thresh = 0,
+              paper_version = T) +
+  ylim(c(-1.5, 1.1)) +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20)) +
+  xlab('RB1 Mutation Status') +
+  ylab('AHR Dependency Score') +
+  ggtitle('')
+
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_AHR.png", plot = p3,
+       width = 5, height = 7)
+```
+
+
+```{r fig.height=4, fig.width=6.5}
+
+current_depmap_ids <-
+          METADATA$depmap_id[METADATA$primary_disease == values$selectedCancerType]
+
+gene = 'AHR'
+gene_set = 'RB_DN.V1_DN'
+# gene_set = 'RB_P107_DN.V1_UP'
+#########################
+
+tmp <- TPM[, c("depmap_id", "cell_line", "gene_name", "rna_expression")] %>%
+        filter(depmap_id %in% current_depmap_ids)
+
+tmp <-
+  tmp[tmp[, "gene_name"] == gene, ][, c("depmap_id", "cell_line", "rna_expression")]
+
+tmp1 <-
+  CRISPR[CRISPR$gene_name == gene, ][, c("depmap_id", "dependency", "gene_name")]
+tmp <- merge(tmp,
+             tmp1[tmp1$gene_name == gene, ][, c("depmap_id", "dependency")],
+             by = "depmap_id")
+
+tmp1 <-
+  MUT[MUT$gene_name == gene, ][, c("depmap_id", "var_annotation", "gene_name")]
+tmp <- left_join(tmp,
+                 tmp1[tmp1$gene_name == gene, ][, c("depmap_id", "var_annotation")],
+                 by = "depmap_id")
+
+tmp1 <-
+  METADATA[METADATA$depmap_id %in% tmp$depmap_id, ][, c("depmap_id",
+                                                        "lineage_subtype")]
+tmp <- left_join(tmp,
+                 tmp1,
+                 by = "depmap_id")
+
+tmp[is.na(tmp$var_annotation), ]$var_annotation <- "unknown"
+
+tmp1 <-
+  funrar::stack_to_matrix(
+    TPM %>% filter(depmap_id %in% current_depmap_ids),
+    'gene_name',
+    'cell_line',
+    'rna_expression'
+  )
+ssgsea_scores <- ssgsea(tmp1, gene_sets)
+enrichment_df <- melt(
+  ssgsea_scores,
+  varnames = c("gene_set", "cell_line"),
+  value.name = "Enrichment"
+)
+
+tmp <-
+  left_join(tmp, enrichment_df[enrichment_df$gene_set == gene_set, ],
+            by = c("cell_line" = "cell_line"))
+
+paper_version = T
+p4 <- ggplot(tmp,
+       aes(x = Enrichment, y = dependency)) +
+  theme_minimal() +
+        geom_point() +
+        geom_smooth(
+          method = glm ,
+          color = "red",
+          fill = "#69b3a2",
+          se = TRUE
+        ) +
+        scale_fill_viridis(option = "inferno") +
+        ggtitle(
+          label = paste(gene, " dependency and ",'\n', gene_set, " enrichment", sep = "")
+        ) +
+        stat_cor(method = "pearson", size = 5) +
+  ylab("Dependency") +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 18),
+        plot.title = element_text(size = 22))
+  
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "RB_DN.V1_DN_AHR.png", plot = p4,
+       width = 7, height = 6)      
+```
+
+# Supplemetary figure
+
+```{r}
+box_plot_creation <- function(data, type, cancer_type, driver_gene, partner_gene,
+                              highlight_cells, paper_version, DD_value, WT_percentage, MUT_percentage){
+  if(!paper_version){
+    box <- ggplot(data, aes(x=group, y=dependency, fill=group)) +
+          geom_boxplot(outlier.shape = NA, show.legend = TRUE) +
+          scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+          geom_jitter(aes(color=cancer_types), size=2, alpha=0.9) +
+          stat_summary(fun=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+          theme_ipsum() +
+          theme(plot.title = element_text(size=11),
+                legend.text = element_text(size=10),
+                axis.title.x = element_text(size = 14),
+                axis.title.y = element_text(size = 14),
+                legend.position = "right") +
+          geom_signif(aes(size=14), comparisons = list(c("WT","MUT")),test = "t.test") +
+          ggtitle(label = paste(c(partner_gene, " dependency in ", driver_gene, "+/- ",
+                          ifelse(type=="specific", cancer_type, ""),
+                          " cells \nDD = ", DD_value), collapse=""),
+                  subtitle = paste(c("WT: ", WT_percentage,
+                                     "%\nMUT: ", MUT_percentage,"%"),collapse="")) +
+          geom_point(data = data[data$depmap_id %in% highlight_cells,], color = "#000080") +
+          geom_text(aes(label = name),
+                    data = data[data$depmap_id %in% highlight_cells,],
+                    color = "#000080", hjust = -.1)
+    
+    return(box)
+  }
+  else{
+    box <- ggplot(data, aes(x=group, y=dependency, fill=group)) +
+          geom_boxplot(outlier.shape = NA, show.legend = FALSE) +
+          scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+          geom_jitter(aes(color=cancer_types), size=2, alpha=0.9) +
+          stat_summary(fun=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+          theme_ipsum() +
+          theme(plot.title = element_text(size=15),
+                legend.text = element_text(size=10),
+                axis.title.x = element_text(size = 14, hjust = 0.5),
+                axis.title.y = element_text(size = 14, hjust = 0.5),
+                legend.position = "none") +
+          xlab(paste(c(driver_gene, "'s Mutation Status"), collapse="")) +
+          ylab(paste(c(partner_gene, "'s Dependency Score"), collapse="")) +
+          geom_signif(aes(size=14),comparisons = list(c("WT","MUT")),test = "t.test") +
+          ggtitle(label = partner_gene,
+                        
+                  subtitle = paste0("DD = ", DD_value)) +
+          geom_point(data = data[data$depmap_id %in% highlight_cells,], color = "#000080") +
+          geom_text(aes(label = name),
+                    data = data[data$depmap_id %in% highlight_cells,],
+                    color = "#000080", hjust = -.1)
+    
+    return(box)
+  }
+}
+
+```
+
+
+
+
+```{r}
+volcano_custom <- function(d_gene = 'RB1', cancer_t = 'Bladder Cancer', genes_list = c("AHR", "CDK2")) {
+    values <- list()
+    values$selectedDriverGene = d_gene
+    values$selectedCancerType = cancer_t
+    
+    lfc <-
+      mut_spec_lfcs[[values$selectedCancerType]][values$selectedDriverGene, ]
+    pvalue <-
+      mut_spec_pvalues[[values$selectedCancerType]][values$selectedDriverGene, ]
+    
+    
+    df <-
+      data.frame(
+        "gene_name" = names(lfc),
+        "LFC" = lfc,
+        "qvalue" = pvalue
+      )
+    
+    # Load genes set
+    DEPMAP_FILES_FOLDER <- "/bigdata/zivcohen/DepMap/"
+    druggable_genes <- read.csv(paste(DEPMAP_FILES_FOLDER,"/Corsello.csv",sep=""))
+    druggable_genes <- unique(unlist(strsplit(druggable_genes$target, ", ")))
+    druggable_genes <- na.omit(druggable_genes)
+    
+    lfc_threshold = 0.2
+    qval_threshold = 0.05 
+      
+    test2 <- df %>%
+      dplyr::mutate(color = case_when(
+        ( (gene_name %in% druggable_genes) & ( (abs(LFC) > lfc_threshold) & (qvalue < qval_threshold) ) ) ~ 'red',
+                                      ( (gene_name %in% druggable_genes) & (abs(LFC) < lfc_threshold | qvalue > qval_threshold) )~ 'blue',
+                                      T ~ 'grey') ) %>% 
+      filter(gene_name %in% genes_list)
+      
+    p <- df %>%
+      dplyr::mutate(color = case_when(
+        ( (gene_name %in% druggable_genes) & ( (abs(LFC) > lfc_threshold) & (qvalue < qval_threshold) ) ) ~ 'red',
+                                      ( (gene_name %in% druggable_genes) & (abs(LFC) < lfc_threshold | qvalue > qval_threshold) )~ 'blue',
+                                      T ~ 'grey') ) %>%
+      ggplot(aes(-LFC, -log10(qvalue), color = color)) +
+      scale_discrete_manual('color', values = c('black',  'blue', 'grey', 'red')) +
+      geom_point() +
+      geom_hline(yintercept = -log10(qval_threshold), linetype='dashed', color='green') +
+      geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype='dashed', color='green') +
+      geom_segment(data=test2, aes(x = -LFC+0.1, y = -log10(qvalue)+0.2, xend = -LFC+0.02, yend = -log10(qvalue)+0.02),
+                      arrow = arrow(length = unit(0.2, "cm")), color='black') +
+      geom_text( data = test2,
+         aes (-LFC, -log10(qvalue), label = gene_name, size = 4, colour = ""),  vjust = -1, hjust = -1) +   
+      theme_bw()+
+      xlim(c(-0.8, 0.8)) +
+      theme(legend.position = "none",
+            axis.text = element_text(size = 14),
+            axis.title = element_text(size = 16),
+            plot.title = element_text(size = 20)) +
+      xlab('Delta-Dependency (DD)') +
+      ylab('-log10(p-value)') +
+      ggtitle(paste0(d_gene, '-WT vs. ', d_gene, '-mutated in ', cancer_t, ' cells')) 
+    
+    p
+}
+
+volcano_custom()
+```
+
+# Graphs
+```{r}
+# Filter out rows with zero values (no edges)
+filtered_edges <- subset(edge_df, corr != 0)
+filtered_edges <- unique(filtered_edges)
+
+if (length(row.names(filtered_edges)) == 0) {
+  graph <- ggplot(data.frame(), aes(1, 1)) +
+    geom_text(
+      aes(label = "Error: no cell fitted the filter, try using a lower threshold"),
+      size = 5,
+      hjust = 0.5,
+      vjust = 0.5
+    ) +
+    theme_void()  # Remove axis and background elements
+  
+  return(ggplotly(graph) %>% event_register("plotly_click"))
+}
+        
+# Calculate the color values based on the correlation values
+filtered_edges$color <-
+  sapply(filtered_edges$corr, custom_color_map)
+
+# Get unique node names
+all_node_names <-
+  unique(c(filtered_edges$gene_name, filtered_edges$gene_set))
+
+all_node_names <-
+  unique(c(filtered_edges$gene_name, filtered_edges$gene_set))
+original_matrix <-
+  funrar::stack_to_matrix(filtered_edges, "gene_set", "gene_name", "corr")
+        
+adjacency_matrix <-
+          matrix(
+            0,
+            nrow = length(all_node_names),
+            ncol = length(all_node_names),
+            dimnames = list(all_node_names, all_node_names)
+          )
+        
+for (i in 1:nrow(original_matrix)) {
+  for (j in 1:ncol(original_matrix)) {
+    if (!is.na(original_matrix[i, j])) {
+      adjacency_matrix[row.names(original_matrix)[i], colnames(original_matrix)[j]] <-
+        original_matrix[i, j]
+    }
+  }
+}
+
+netmat1_matrix <- adjacency_matrix
+        
+# Remove NA values from the matrix
+df <- na.omit(netmat1_matrix)
+
+# Create a network object from the adjacency matrix
+net1 <-
+  network(df, matrix.type = "adjacency", loops = FALSE)
+        
+# Create a network plot using ggnet2
+network <-
+  ggnet2(
+    net1,
+    node.size = 5,
+    node.color = rep(c("orange", "purple"),
+                     times = c(
+                       length(unique(filtered_edges$gene_name)),
+                       length(unique(filtered_edges$gene_set))
+                     )),
+    edge.size = 1,
+    edge.color = filtered_edges$color,
+    label = all_node_names
+  )
+        
+plotly_network <-
+          ggplotly(network, source = "generalPlot", tooltip = c())
+        
+plotly_network <- plotly_network %>% add_trace(
+  x = network$data$x,
+  y = network$data$y,
+  hoverinfo = "text",
+  text = all_node_names,
+  key = all_node_names,
+  type = "scatter",
+  mode = "markers",
+  marker = list(
+    size = 25,
+    color = rep(c("orange", "purple"),
+                times = c(
+                  length(unique(filtered_edges$gene_name)),
+                  length(unique(filtered_edges$gene_set))
+                )),
+    opacity = 0
+  )
+)
+```
+
+
+
+```{r}
+skin_volcano <- volcano_custom(d_gene = 'TP53', cancer_t = 'Skin Cancer', genes_list = c('ATP2A2'))
+skin_volcano
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "volcano_skin.png", plot = skin_volcano,
+       width = 8, height = 5)
+
+lung_volcano <- volcano_custom(d_gene = 'RYR2', cancer_t = 'Lung Cancer', genes_list = c('BCL2L1'))
+lung_volcano
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "volcano_lung.png", plot = lung_volcano,
+       width = 8, height = 5)
+
+lymphoma_volcano <- volcano_custom(d_gene = 'KMT2D', cancer_t = 'Lymphoma', genes_list = c('SLC15A4', 'ATP1A2'))
+lymphoma_volcano
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "volcano_lymphoma.png", plot = lymphoma_volcano,
+       width = 8, height = 5)
+
+ovarian_volcano <- volcano_custom(d_gene = 'TP53', cancer_t = 'Ovarian Cancer', genes_list = c('PTPN11'))
+ovarian_volcano
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "volcano_ovarian.png", plot = ovarian_volcano,
+       width = 8, height = 5)
+
+breast_volcano <- volcano_custom(d_gene = 'TTN', cancer_t = 'Breast Cancer', genes_list = c('GLS', 'ARPC2'))
+breast_volcano
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "volcano_breast.png", plot = breast_volcano,
+       width = 8, height = 5)
+```
+
+```{r}
+values$selectedCancerType <- "Ovarian Cancer"
+boxplot_custom <- function(d_gene, g_gene) {
+  box_profile(profile_mat = mut_spec_dependencyProfiles$`Ovarian Cancer`,
+              mut_mat = mutation_matrix,
+              type = 'specific',
+              cancer_type = values$selectedCancerType,
+              driver_gene = d_gene,
+              goi = g_gene,
+              DD_thresh = 0,
+              paper_version = T) +
+  #ylim(c(-1.5, 1.1)) +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 20)) +
+  xlab(paste(d_gene, 'Mutation Status')) +
+  ylab(paste(g_gene, 'Dependency Score'))  
+}
+
+
+p_box <- boxplot_custom('TP53', 'PTPN11')
+p_box
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_ovarian.png", plot = p_box,
+       width = 5, height = 7)
+
+values$selectedCancerType <- "Skin Cancer"
+boxplot_custom <- function(d_gene, g_gene) {
+  box_profile(profile_mat = mut_spec_dependencyProfiles$`Skin Cancer`,
+              mut_mat = mutation_matrix,
+              type = 'specific',
+              cancer_type = values$selectedCancerType,
+              driver_gene = d_gene,
+              goi = g_gene,
+              DD_thresh = 0,
+              paper_version = T) +
+  #ylim(c(-1.5, 1.1)) +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 20)) +
+  xlab(paste(d_gene, 'Mutation Status')) +
+  ylab(paste(g_gene, 'Dependency Score'))  
+}
+
+
+p_box <- boxplot_custom('TP53', 'ATP2A2')
+p_box
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_skin.png", plot = p_box,
+       width = 5, height = 7)
+
+values$selectedCancerType <- "Lung Cancer"
+boxplot_custom <- function(d_gene, g_gene) {
+  box_profile(profile_mat = mut_spec_dependencyProfiles$`Lung Cancer`,
+              mut_mat = mutation_matrix,
+              type = 'specific',
+              cancer_type = values$selectedCancerType,
+              driver_gene = d_gene,
+              goi = g_gene,
+              DD_thresh = 0,
+              paper_version = T) +
+  #ylim(c(-1.5, 1.1)) +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 20)) +
+  xlab(paste(d_gene, 'Mutation Status')) +
+  ylab(paste(g_gene, 'Dependency Score'))  
+}
+
+
+p_box <- boxplot_custom('RYR2', 'BCL2L1')
+p_box
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_lung.png", plot = p_box,
+       width = 5, height = 7)
+
+
+values$selectedCancerType <- "Lymphoma"
+boxplot_custom <- function(d_gene, g_gene) {
+  box_profile(profile_mat = mut_spec_dependencyProfiles$`Lymphoma`,
+              mut_mat = mutation_matrix,
+              type = 'specific',
+              cancer_type = values$selectedCancerType,
+              driver_gene = d_gene,
+              goi = g_gene,
+              DD_thresh = 0,
+              paper_version = T) +
+  #ylim(c(-1.5, 1.1)) +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 20)) +
+  xlab(paste(d_gene, 'Mutation Status')) +
+  ylab(paste(g_gene, 'Dependency Score'))  
+}
+
+
+p_box <- boxplot_custom('KMT2D', 'ATP1A2')
+p_box
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_lymphoma1.png", plot = p_box,
+       width = 5, height = 7)
+
+p_box <- boxplot_custom('KMT2D', 'SLC15A4')
+p_box
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_lymphoma2.png", plot = p_box,
+       width = 5, height = 7)
+
+
+values$selectedCancerType <- "Breast Cancer"
+boxplot_custom <- function(d_gene, g_gene) {
+  box_profile(profile_mat = mut_spec_dependencyProfiles$`Breast Cancer`,
+              mut_mat = mutation_matrix,
+              type = 'specific',
+              cancer_type = values$selectedCancerType,
+              driver_gene = d_gene,
+              goi = g_gene,
+              DD_thresh = 0,
+              paper_version = T) +
+  #ylim(c(-1.5, 1.1)) +
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 20)) +
+  xlab(paste(d_gene, 'Mutation Status')) +
+  ylab(paste(g_gene, 'Dependency Score'))  
+}
+
+
+p_box <- boxplot_custom('TTN', 'GLS')
+p_box
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_breast1.png", plot = p_box,
+       width = 5, height = 7)
+
+p_box <- boxplot_custom('TTN', 'RPS2')
+p_box
+ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+       device = "png", filename = "boxplot_breast2.png", plot = p_box,
+       width = 5, height = 7)
+```
+
+# Figure 3 enrichment
+
+```{r}
+# Calculate p-values for STRING enrichment
+library(stats)
+string_pvalues <- data.frame(
+  cancer_type = character(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (cancer_type in unique(STRING_ratios$name)) {
+  # Skip NA_slice entries if needed
+  if (cancer_type %in% na_slice) {
+    next
+  }
+  
+  # Get the data for this cancer type
+  cancer_data <- STRING_ratios[STRING_ratios$name == cancer_type,]
+  
+  # Extract the counts for both types
+  slayer_data <- cancer_data[cancer_data$type == "SLANT",]
+  potential_data <- cancer_data[cancer_data$type == "Potential pairs",]
+  
+  if (nrow(slayer_data) == 0 || nrow(potential_data) == 0) {
+    next
+  }
+  
+  # Create the contingency table correctly
+  cont_table <- matrix(
+    c(slayer_data$STRING_TRUE, slayer_data$STRING_FALSE,
+      potential_data$STRING_TRUE, potential_data$STRING_FALSE),
+    nrow = 2,
+    byrow = TRUE
+  )
+  
+  # Add row and column names
+  rownames(cont_table) <- c("SLANT", "Potential")
+  colnames(cont_table) <- c("TRUE", "FALSE")
+  
+  # Perform Fisher's exact test
+  p_value <- fisher.test(cont_table, alternative = "greater")$p.value
+  
+  # Add to data frame
+  string_pvalues <- rbind(string_pvalues, 
+                         data.frame(cancer_type = cancer_type, 
+                                   p_value = p_value))
+}
+
+# Find minimum and maximum p-values
+min_p <- format(min(string_pvalues$p_value), scientific = TRUE, digits = 3)
+max_p <- format(max(string_pvalues$p_value), scientific = TRUE, digits = 3)
+
+print(paste("P-values range from", min_p, "to", max_p))
+print(string_pvalues)
+```
+
+## Improvement of figure
+
+```{r}
+# Create improved Figure 3
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Prepare the data
+fig_data <- STRING_ratios %>%
+  filter(name %in% string_pvalues$cancer_type)
+
+# Join significance data
+sig_data <- string_pvalues %>%
+  mutate(sig_level = case_when(
+    p_value < 0.001 ~ "***",
+    p_value < 0.01 ~ "**", 
+    p_value < 0.05 ~ "*",
+    TRUE ~ "ns"
+  ))
+
+# Sort cancer types by validation rate
+ordered_cancers <- fig_data %>%
+  filter(type == "SLANT") %>%
+  arrange(desc(ratio)) %>%
+  pull(name)
+
+fig_data$name <- factor(fig_data$name, levels = ordered_cancers)
+
+# Basic plot
+p <- ggplot(fig_data, aes(x = name, y = ratio * 100)) +
+  geom_bar(aes(fill = type), position = "dodge", stat = "identity") +
+  scale_fill_manual(values = c("SLANT" = "#2C7BB6", "Potential pairs" = "#D7191C"),
+                   labels = c("Background pairs", paste0("SLAYER predictions (N=", length(final_pairs_uniq$driver_gene), ")"))) +
+  labs(title = "Validation of synthetic lethal interactions in STRING database",
+       subtitle = paste0("Total pairs evaluated per cancer type: ",
+                        format(min(pair_counts$total_possible_pairs), big.mark = ","),
+                        " to ",
+                        format(max(pair_counts$total_possible_pairs), big.mark = ",")),
+       x = "Cancer Type",
+       y = "STRING-validated Pairs (%)",
+       fill = "Gene Pair Source") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.title = element_text(size = 12, face = "bold"),
+        legend.position = "top") +
+  geom_hline(yintercept = 0, linetype = "solid", color = "gray50")
+
+# Add significance stars
+for(i in 1:nrow(sig_data)) {
+  cancer <- sig_data$cancer_type[i]
+  p_value <- sig_data$p_value[i]
+  stars <- sig_data$sig_level[i]
+  
+  # Get y-position (maximum bar height + offset)
+  max_y <- max(fig_data$ratio[fig_data$name == cancer]) * 100 + 5
+  
+  # Add annotation
+  p <- p + annotate("text", x = which(ordered_cancers == cancer), y = max_y, 
+                   label = stars, size = 4)
+}
+
+# Add p-value range annotation
+p <- p + annotate("text", x = length(ordered_cancers)/2, y = max(fig_data$ratio * 100) * 1.2,
+                 label = paste0("P-values range from ", min_p, " to ", max_p),
+                 size = 3, fontface = "italic")
+
+# Display the plot
+print(p)
+
+write.csv(fig_data, 'figure3_data.csv')
+# Save the plot
+ggsave("plots/Figure3.png", p, width = 10, height = 6, dpi = 300)
+```
+
+# Distribution
+
+```{r}
+# First, check the structure of your metadata to confirm column names
+str(METADATA)
+
+# Count total cell lines per cancer type
+cancer_type_counts <- table(METADATA$primary_disease)
+print(cancer_type_counts)
+
+# Count cell lines that were included in your final analysis
+# Let's assume mutation_matrix contains the filtered cell lines
+included_cells <- colnames(mutation_matrix)
+included_cells <- gsub("\\.", "-", included_cells)  # Adjust format if needed
+
+# Find which cells from METADATA are in the included list
+included_metadata <- METADATA[METADATA$depmap_id %in% included_cells,]
+included_counts <- table(included_metadata$primary_disease)
+
+# Calculate excluded counts and rates
+excluded_counts <- cancer_type_counts - included_counts
+excluded_rates <- (excluded_counts / cancer_type_counts) * 100
+
+# Create summary dataframe
+summary_df <- data.frame(
+  cancer_type = names(cancer_type_counts),
+  total_lines = as.numeric(cancer_type_counts),
+  included_lines = as.numeric(included_counts),
+  excluded_lines = as.numeric(excluded_counts),
+  exclusion_rate = as.numeric(excluded_rates)
+)
+
+# Fill NA values with 0
+summary_df[is.na(summary_df)] <- 0
+
+# Sort by exclusion rate to find the highest
+summary_df <- summary_df[order(-summary_df$exclusion_rate),]
+print(summary_df)
+
+# Get top 3 cancer types with highest exclusion rates
+top3_excluded <- head(summary_df, 3)$cancer_type
+top3_rates <- head(summary_df, 3)$exclusion_rate
+print(paste("Top 3 excluded cancer types:", paste(top3_excluded, round(top3_rates), "%", sep=" ", collapse=", ")))
+
+# Find minimum number of remaining cell lines (for cancer types with at least 1 cell line)
+relevant_types <- summary_df$cancer_type[summary_df$included_lines > 0]
+min_remaining <- min(summary_df$included_lines[summary_df$included_lines > 0])
+print(paste("Minimum remaining cell lines:", min_remaining))
+
+# Calculate percentile of 100-mutation threshold
+# If you have mutation counts per cell line, you can calculate this
+# mutation_counts <- ...
+# percentile <- ecdf(mutation_counts)(100) * 100
+# print(paste("100 mutations corresponds to", round(percentile), "percentile"))
+```
+
+# Cell line table
+
+```{r}
+# Create enhanced supplementary table with additional statistics
+supp_table <- summary_df
+  
+# Add column indicating if cancer type was used in tissue-specific analyses
+cancer_types_used <- c("Liver Cancer", "Head and Neck Cancer", "Kidney Cancer", "Lymphoma", 
+                      "Gastric Cancer", "Brain Cancer", "Myeloma", "Pancreatic Cancer", 
+                      "Breast Cancer", "Skin Cancer", "Ovarian Cancer", "Lung Cancer", 
+                      "Bladder Cancer", "Colon/Colorectal Cancer", "Leukemia")
+
+supp_table$used_in_analysis <- supp_table$cancer_type %in% cancer_types_used
+
+# Reformat percentages for better readability
+supp_table$exclusion_rate <- sprintf("%.1f%%", supp_table$exclusion_rate)
+
+# Reorder columns for better flow
+supp_table <- supp_table[, c("cancer_type", "total_lines", "included_lines", 
+                             "excluded_lines", "exclusion_rate", "used_in_analysis")]
+
+# Rename columns for clarity
+colnames(supp_table) <- c("Cancer Type", "Total Cell Lines", "Included Cell Lines", 
+                          "Excluded Cell Lines", "Exclusion Rate", "Used in Tissue-Specific Analysis")
+
+# Sort by: 1) Whether used in analysis (Yes first), 2) Total cell lines (descending)
+supp_table <- supp_table[order(-supp_table$`Used in Tissue-Specific Analysis`, 
+                               -supp_table$`Total Cell Lines`), ]
+
+# Convert boolean to Yes/No
+supp_table$`Used in Tissue-Specific Analysis` <- ifelse(
+  supp_table$`Used in Tissue-Specific Analysis`, "Yes", "No")
+
+# Save as CSV
+write.csv(supp_table, "Supplementary_Table_Cell_Line_Filtering.csv", row.names = FALSE)
+```
+
+```{r}
+supp_table %>% 
+  dplyr::filter(`Used in Tissue-Specific Analysis` == 'Yes') %>% 
+  pull(`Excluded Cell Lines`) %>% sum()
+```
+
+```{r}
+# Calculate total number of cell lines
+total_cell_lines <- sum(summary_df$total_lines)
+
+# Calculate number of excluded cell lines
+total_excluded <- sum(summary_df$excluded_lines)
+
+# Calculate exclusion percentage
+exclusion_percentage <- (total_excluded / total_cell_lines) * 100
+
+# Calculate percentile (the threshold is at the percentile where exclusion begins)
+threshold_percentile <- 100 - exclusion_percentage
+
+# Print results
+print(paste("Total cell lines:", total_cell_lines))
+print(paste("Excluded cell lines:", total_excluded))
+print(paste("Exclusion percentage:", round(exclusion_percentage, 1), "%"))
+print(paste("100 mutations corresponds to approximately the", 
+            round(threshold_percentile, 1), "th percentile"))
+```
+
+# DD-score
+
+```{r}
+synlethDB <- read.csv('synlethDB.tsv', sep = '\t') %>% 
+  dplyr::filter(rel_source == 'Text Mining')
+lord_pairs <- read.csv('pairs_lord.csv')
+scaf_pairs <- read.csv('schaffer_pairs.csv')
+processed_sl_pairs <- read.csv('scaf_processed_pairs.csv')
+```
+
+```{r}
+# Function to check Lord pairs against existing DD calculations
+analyze_lord_pairs_recovery <- function(lord_pairs, lfc_matrix, pvalue_matrix, mutation_matrix) {
+  # Extract clean gene names from Driver column
+  lord_pairs$driver_gene <- gsub("_.*", "", lord_pairs$Driver)
+  
+  results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    delta_dependency = numeric(),
+    pvalue = numeric(),
+    significant = logical(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Process each Lord pair
+  for (i in 1:nrow(lord_pairs)) {
+    driver <- lord_pairs$driver_gene[i]
+    partner <- lord_pairs$Dependency[i]
+    
+    # Skip if genes not in matrices
+    if (!(driver %in% rownames(lfc_matrix)) || !(partner %in% colnames(lfc_matrix))) {
+      next
+    }
+    
+    # Get DD and p-value from pre-calculated matrices
+    dd_value <- lfc_matrix[driver, partner]
+    p_value <- pvalue_matrix[driver, partner]
+    
+    # Add to results if not NA
+    if (!is.na(dd_value) && !is.na(p_value)) {
+      results <- rbind(results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        delta_dependency = dd_value,
+        pvalue = p_value,
+        significant = p_value < 0.05,
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  # Summary statistics
+  total_pairs <- nrow(results)
+  significant_pairs <- sum(results$significant)
+  positive_dd_pairs <- sum(results$delta_dependency > 0)
+  significant_and_positive <- sum(results$significant & results$delta_dependency > 0)
+  above_threshold <- sum(results$delta_dependency > 0.2)
+  significant_and_above_threshold <- sum(results$significant & results$delta_dependency > 0.2)
+  
+  return(list(
+    results = results,
+    summary = list(
+      total_assessed = total_pairs,
+      significant_percent = significant_pairs/total_pairs*100,
+      positive_dd_percent = positive_dd_pairs/total_pairs*100,
+      significant_positive_percent = significant_and_positive/total_pairs*100,
+      above_threshold_percent = above_threshold/total_pairs*100,
+      significant_threshold_percent = significant_and_above_threshold/total_pairs*100
+    )
+  ))
+}
+
+# Use the function
+lord_analysis <- analyze_lord_pairs_recovery(lord_pairs, lfc_matrix, pvalue_matrix, mutation_matrix)
+
+# Print results for reviewer response
+cat("Total Lord pairs assessed:", lord_analysis$summary$total_assessed, "\n")
+cat("Percentage with statistical significance:", round(lord_analysis$summary$significant_percent, 2), "%\n")
+cat("Percentage with positive DD:", round(lord_analysis$summary$positive_dd_percent, 2), "%\n")
+cat("Percentage with both:", round(lord_analysis$summary$significant_positive_percent, 2), "%\n")
+cat("Percentage above threshold (DD > 0.2):", round(lord_analysis$summary$above_threshold_percent, 2), "%\n")
+cat("Percentage significant & above threshold:", round(lord_analysis$summary$significant_threshold_percent, 2), "%\n")
+```
+
+```{r}
+# Function to compare Lord pairs with random control pairs
+compare_lord_vs_random <- function(lord_pairs, lfc_matrix, pvalue_matrix, n_random = 1000) {
+  # Process Lord pairs
+  lord_pairs$driver_gene <- gsub("_.*", "", lord_pairs$Driver)
+  
+  # Extract DD scores for Lord pairs
+  lord_results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    delta_dependency = numeric(),
+    pvalue = numeric(),
+    set = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in 1:nrow(lord_pairs)) {
+    driver <- lord_pairs$driver_gene[i]
+    partner <- lord_pairs$Dependency[i]
+    
+    if (!(driver %in% rownames(lfc_matrix)) || !(partner %in% colnames(lfc_matrix))) {
+      next
+    }
+    
+    dd_value <- lfc_matrix[driver, partner]
+    p_value <- pvalue_matrix[driver, partner]
+    
+    if (!is.na(dd_value) && !is.na(p_value)) {
+      lord_results <- rbind(lord_results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        delta_dependency = dd_value,
+        pvalue = p_value,
+        set = "Known SL",
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  # Generate random pairs
+  driver_genes <- rownames(lfc_matrix)
+  partner_genes <- colnames(lfc_matrix)
+  
+  # Create a function to generate random pairs
+  generate_random_pair <- function() {
+    driver <- sample(driver_genes, 1)
+    partner <- sample(partner_genes, 1)
+    return(c(driver, partner))
+  }
+  
+  # Get random pairs
+  random_results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    delta_dependency = numeric(),
+    pvalue = numeric(),
+    set = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  random_count <- 0
+  while(random_count < n_random) {
+    random_pair <- generate_random_pair()
+    driver <- random_pair[1]
+    partner <- random_pair[2]
+    
+    # Skip pairs that are in the Lord set to ensure independence
+    if (any(lord_results$driver_gene == driver & lord_results$partner_gene == partner)) {
+      next
+    }
+    
+    dd_value <- lfc_matrix[driver, partner]
+    p_value <- pvalue_matrix[driver, partner]
+    
+    if (!is.na(dd_value) && !is.na(p_value)) {
+      random_results <- rbind(random_results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        delta_dependency = dd_value,
+        pvalue = p_value,
+        set = "Random",
+        stringsAsFactors = FALSE
+      ))
+      random_count <- random_count + 1
+    }
+  }
+  
+  # Combine results
+  all_results <- rbind(lord_results, random_results)
+  
+  # Calculate summary statistics for both sets
+  lord_summary <- list(
+    total = nrow(lord_results),
+    significant = sum(lord_results$pvalue < 0.05),
+    positive_dd = sum(lord_results$delta_dependency > 0),
+    both = sum(lord_results$pvalue < 0.05 & lord_results$delta_dependency > 0),
+    above_threshold = sum(lord_results$delta_dependency > 0.1),
+    sig_and_threshold = sum(lord_results$pvalue < 0.05 & lord_results$delta_dependency > 0.1)
+  )
+  
+  random_summary <- list(
+    total = nrow(random_results),
+    significant = sum(random_results$pvalue < 0.05),
+    positive_dd = sum(random_results$delta_dependency > 0),
+    both = sum(random_results$pvalue < 0.05 & random_results$delta_dependency > 0),
+    above_threshold = sum(random_results$delta_dependency > 0.1),
+    sig_and_threshold = sum(random_results$pvalue < 0.05 & random_results$delta_dependency > 0.1)
+  )
+  
+  # Create side-by-side boxplot
+  p <- ggplot(all_results, aes(x = set, y = delta_dependency, fill = set)) +
+    geom_boxplot() +
+    geom_hline(yintercept = 0.2, linetype = "dashed", color = "red") +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +
+    scale_fill_manual(values = c("Known SL" = "lightblue", "Random" = "lightgrey")) +
+    labs(title = "Delta Dependency Score Distribution",
+         subtitle = "Known Synthetic Lethal Pairs vs. Random Gene Pairs",
+         x = "",
+         y = "Delta Dependency (WT - MUT)") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+    
+  return(list(
+    lord_summary = lord_summary,
+    random_summary = random_summary,
+    combined_data = all_results,
+    plot = p
+  ))
+}
+
+# Run the comparison
+comparison <- compare_lord_vs_random(lord_pairs, lfc_matrix, pvalue_matrix, n_random = 1000)
+
+# Display results
+cat("Known SL Pairs (n =", comparison$lord_summary$total, "):\n")
+cat("- Statistically significant:", comparison$lord_summary$significant, 
+    "(", round(comparison$lord_summary$significant/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- Positive DD:", comparison$lord_summary$positive_dd, 
+    "(", round(comparison$lord_summary$positive_dd/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- Both significant & positive:", comparison$lord_summary$both, 
+    "(", round(comparison$lord_summary$both/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2:", comparison$lord_summary$above_threshold, 
+    "(", round(comparison$lord_summary$above_threshold/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2 and significant:", comparison$lord_summary$sig_and_threshold, 
+    "(", round(comparison$lord_summary$sig_and_threshold/comparison$lord_summary$total*100, 1), "%)\n")
+
+cat("\nRandom Pairs (n =", comparison$random_summary$total, "):\n")
+cat("- Statistically significant:", comparison$random_summary$significant, 
+    "(", round(comparison$random_summary$significant/comparison$random_summary$total*100, 1), "%)\n")
+cat("- Positive DD:", comparison$random_summary$positive_dd, 
+    "(", round(comparison$random_summary$positive_dd/comparison$random_summary$total*100, 1), "%)\n")
+cat("- Both significant & positive:", comparison$random_summary$both, 
+    "(", round(comparison$random_summary$both/comparison$random_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2:", comparison$random_summary$above_threshold, 
+    "(", round(comparison$random_summary$above_threshold/comparison$random_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2 and significant:", comparison$random_summary$sig_and_threshold, 
+    "(", round(comparison$random_summary$sig_and_threshold/comparison$random_summary$total*100, 1), "%)\n")
+
+# Calculate enrichment ratios
+sig_enrichment <- (comparison$lord_summary$significant/comparison$lord_summary$total) / 
+                 (comparison$random_summary$significant/comparison$random_summary$total)
+pos_enrichment <- (comparison$lord_summary$positive_dd/comparison$lord_summary$total) / 
+                 (comparison$random_summary$positive_dd/comparison$random_summary$total)
+both_enrichment <- (comparison$lord_summary$both/comparison$lord_summary$total) / 
+                  (comparison$random_summary$both/comparison$random_summary$total)
+threshold_enrichment <- (comparison$lord_summary$above_threshold/comparison$lord_summary$total) / 
+                       (comparison$random_summary$above_threshold/comparison$random_summary$total)
+
+cat("\nEnrichment Ratios (Known SL vs Random):\n")
+cat("- Significant: ", round(sig_enrichment, 2), "x\n")
+cat("- Positive DD: ", round(pos_enrichment, 2), "x\n")
+cat("- Both: ", round(both_enrichment, 2), "x\n")
+cat("- DD > 0.2: ", round(threshold_enrichment, 2), "x\n")
+
+# Display the plot
+print(comparison$plot)
+
+# Save results
+ggsave("lord_vs_random_DD_comparison.png", comparison$plot, width = 8, height = 6)
+```
+
+## scaffer
+
+```{r}
+preprocess_sl_pairs <- function(scaf_pairs) {
+  # Create a new dataframe to hold the expanded rows
+  # browser()
+  processed_pairs <- data.frame(
+    PMID = character(),
+    mut_gene = character(),
+    target_gene = character(),
+    drug = character(),
+    application = character(),
+    is_ddr = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Process each row
+  for (i in 1:nrow(scaf_pairs)) {
+    # Get data from current row
+    pmid <- scaf_pairs$PMID[i]
+    drug <- scaf_pairs$drug[i]
+    application <- scaf_pairs$application[i]
+    is_ddr <- scaf_pairs$is_ddr[i]
+    
+    # Skip rows with empty target genes
+    if (is.na(scaf_pairs$target_gene[i]) || scaf_pairs$target_gene[i] == "" || 
+      is.na(scaf_pairs$mut_gene[i]) || scaf_pairs$mut_gene[i] == "") {
+      next
+    }
+    
+    # Split mut_gene if it contains multiple genes (separated by + or /)
+    mut_genes <- unlist(strsplit(as.character(scaf_pairs$mut_gene[i]), "[+/]"))
+    mut_genes <- trimws(mut_genes)  # Remove any whitespace
+    
+    # Split target_gene if it contains multiple genes (separated by + or /)
+    target_genes <- unlist(strsplit(as.character(scaf_pairs$target_gene[i]), "[+/]"))
+    target_genes <- trimws(target_genes)  # Remove any whitespace
+    
+    # Remove any "NA" entries that might have resulted from splitting
+    mut_genes <- mut_genes[mut_genes != "NA" & !is.na(mut_genes)]
+    target_genes <- target_genes[target_genes != "NA" & !is.na(target_genes)]
+    
+    # Create all combinations of mut_gene and target_gene
+    for (mut in mut_genes) {
+      for (target in target_genes) {
+        # Add a new row to the processed dataframe
+        processed_pairs <- rbind(processed_pairs, data.frame(
+          PMID = pmid,
+          mut_gene = mut,
+          target_gene = target,
+          drug = drug,
+          application = application,
+          is_ddr = is_ddr,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  return(processed_pairs)
+}
+
+# Use the function
+processed_sl_pairs <- preprocess_sl_pairs(scaf_pairs %>% dplyr::filter(!is.na(PMID)))
+
+# Print the first few rows to verify
+head(processed_sl_pairs, 10)
+
+# Get counts to verify expansion
+cat("Original pairs:", nrow(scaf_pairs), "\n")
+cat("Processed pairs:", nrow(processed_sl_pairs), "\n")
+
+write.csv(processed_sl_pairs, 'scaf_processed_pairs.csv')
+```
+
+```{r}
+# Function to compare Lord pairs with random control pairs
+compare_scaf_vs_random <- function(scaf_pairs, lfcs_df, n_random = 1000) {
+
+  # browser()
+  # Extract DD scores for Lord pairs
+  scaf_results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    delta_dependency = numeric(),
+    pvalue = numeric(),
+    set = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in 1:nrow(lord_pairs)) {
+    driver <- scaf_pairs$mut_gene[i]
+    partner <- scaf_pairs$target_gene[i]
+    
+    if (!(driver %in% lfcs_df$driver_gene) || !(partner %in% lfcs_df$partner_gene)) {
+      next
+    }
+    
+    matches <- lfcs_df[lfcs_df$driver_gene == driver & lfcs_df$partner_gene == partner, ]
+    if (nrow(matches) == 0) {
+     next
+    }
+    if (nrow(matches) != 1) {
+      matches <- matches %>% 
+        dplyr::filter(delta_dependency == max(matches$delta_dependency))
+    }
+    dd_value <- matches$delta_dependency
+    p_value <- matches$pvalue
+    
+    if (!is.na(dd_value) && !is.na(p_value)) {
+      scaf_results <- rbind(scaf_results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        delta_dependency = dd_value,
+        pvalue = p_value,
+        set = "Known SL",
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  
+  # Generate random pairs
+  unique_drivers <- unique(lfcs_df$driver_gene)
+  unique_partners <- unique(lfcs_df$partner_gene)
+  unique_cancer_types <- unique(lfcs_df$cancer_types)
+  
+  # Create a function to generate random entries
+  random_results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    cancer_types = character(),
+    delta_dependency = numeric(),
+    pvalue = numeric(),
+    set = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  random_count <- 0
+  while(random_count < n_random) {
+    # Sample a random entry from lfcs_df
+    random_idx <- sample(1:nrow(lfcs_df), 1)
+    cancer_type <- lfcs_df$cancer_types[random_idx]
+    
+    # Sample random driver and partner
+    driver <- sample(unique_drivers, 1)
+    partner <- sample(unique_partners, 1)
+    
+    # Skip pairs that are in the SCAF set to ensure independence
+    if (any(scaf_results$driver_gene == driver & 
+            scaf_results$partner_gene == partner &
+            scaf_results$cancer_types == cancer_type)) {
+      next
+    }
+    
+    # Find this pair in lfcs_df for the sampled cancer type
+    match_idx <- which(lfcs_df$driver_gene == driver & 
+                        lfcs_df$partner_gene == partner & 
+                        lfcs_df$cancer_types == cancer_type)
+    
+    # If found, add to random results
+    if (length(match_idx) > 0) {
+      idx <- match_idx[1]  # Take the first if multiple
+      random_results <- rbind(random_results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        delta_dependency = lfcs_df$delta_dependency[idx],
+        pvalue = lfcs_df$pvalue[idx],
+        set = "Random",
+        stringsAsFactors = FALSE
+      ))
+      random_count <- random_count + 1
+    }
+  }
+  
+  # Combine results
+  all_results <- rbind(scaf_results, random_results)
+  
+  # Calculate summary statistics for both sets
+  lord_summary <- list(
+    total = nrow(scaf_results),
+    significant = sum(scaf_results$pvalue < 0.05),
+    positive_dd = sum(scaf_results$delta_dependency > 0),
+    both = sum(scaf_results$pvalue < 0.05 & scaf_results$delta_dependency > 0),
+    above_threshold = sum(scaf_results$delta_dependency > 0.1),
+    sig_and_threshold = sum(scaf_results$pvalue < 0.05 & scaf_results$delta_dependency > 0.1)
+  )
+  
+  random_summary <- list(
+    total = nrow(random_results),
+    significant = sum(random_results$pvalue < 0.05),
+    positive_dd = sum(random_results$delta_dependency > 0),
+    both = sum(random_results$pvalue < 0.05 & random_results$delta_dependency > 0),
+    above_threshold = sum(random_results$delta_dependency > 0.1),
+    sig_and_threshold = sum(random_results$pvalue < 0.05 & random_results$delta_dependency > 0.1)
+  )
+  
+  # Create side-by-side boxplot
+  p <- ggplot(all_results, aes(x = set, y = delta_dependency, fill = set)) +
+    geom_boxplot() +
+    geom_hline(yintercept = 0.2, linetype = "dashed", color = "red") +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +
+    scale_fill_manual(values = c("Known SL" = "lightblue", "Random" = "lightgrey")) +
+    labs(title = "Delta Dependency Score Distribution",
+         subtitle = "Known Synthetic Lethal Pairs vs. Random Gene Pairs",
+         x = "",
+         y = "Delta Dependency (WT - MUT)") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+    
+  return(list(
+    lord_summary = lord_summary,
+    random_summary = random_summary,
+    combined_data = all_results,
+    plot = p
+  ))
+}
+```
+
+
+```{r}
+# Run the comparison
+comparison <- compare_scaf_vs_random(processed_sl_pairs, intersection_df, n_random = 1000)
+comparison$combined_data
+
+# Display results
+cat("Known SL Pairs (n =", comparison$lord_summary$total, "):\n")
+cat("- Statistically significant:", comparison$lord_summary$significant, 
+    "(", round(comparison$lord_summary$significant/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- Positive DD:", comparison$lord_summary$positive_dd, 
+    "(", round(comparison$lord_summary$positive_dd/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- Both significant & positive:", comparison$lord_summary$both, 
+    "(", round(comparison$lord_summary$both/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2:", comparison$lord_summary$above_threshold, 
+    "(", round(comparison$lord_summary$above_threshold/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2 and significant:", comparison$lord_summary$sig_and_threshold, 
+    "(", round(comparison$lord_summary$sig_and_threshold/comparison$lord_summary$total*100, 1), "%)\n")
+
+cat("\nRandom Pairs (n =", comparison$random_summary$total, "):\n")
+cat("- Statistically significant:", comparison$random_summary$significant, 
+    "(", round(comparison$random_summary$significant/comparison$random_summary$total*100, 1), "%)\n")
+cat("- Positive DD:", comparison$random_summary$positive_dd, 
+    "(", round(comparison$random_summary$positive_dd/comparison$random_summary$total*100, 1), "%)\n")
+cat("- Both significant & positive:", comparison$random_summary$both, 
+    "(", round(comparison$random_summary$both/comparison$random_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2:", comparison$random_summary$above_threshold, 
+    "(", round(comparison$random_summary$above_threshold/comparison$random_summary$total*100, 1), "%)\n")
+cat("- DD > 0.2 and significant:", comparison$random_summary$sig_and_threshold, 
+    "(", round(comparison$random_summary$sig_and_threshold/comparison$random_summary$total*100, 1), "%)\n")
+
+# Calculate enrichment ratios
+sig_enrichment <- (comparison$lord_summary$significant/comparison$lord_summary$total) / 
+                 (comparison$random_summary$significant/comparison$random_summary$total)
+pos_enrichment <- (comparison$lord_summary$positive_dd/comparison$lord_summary$total) / 
+                 (comparison$random_summary$positive_dd/comparison$random_summary$total)
+both_enrichment <- (comparison$lord_summary$both/comparison$lord_summary$total) / 
+                  (comparison$random_summary$both/comparison$random_summary$total)
+threshold_enrichment <- (comparison$lord_summary$above_threshold/comparison$lord_summary$total) / 
+                       (comparison$random_summary$above_threshold/comparison$random_summary$total)
+
+cat("\nEnrichment Ratios (Known SL vs Random):\n")
+cat("- Significant: ", round(sig_enrichment, 2), "x\n")
+cat("- Positive DD: ", round(pos_enrichment, 2), "x\n")
+cat("- Both: ", round(both_enrichment, 2), "x\n")
+cat("- DD > 0.2: ", round(threshold_enrichment, 2), "x\n")
+
+# Display the plot
+print(comparison$plot)
+```
+
+## text mining
+
+```{r}
+compare_synth_vs_random <- function(scaf_pairs, lfcs_df, n_random = 1000) {
+
+  # browser()
+  # Extract DD scores for Lord pairs
+  scaf_results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    delta_dependency = numeric(),
+    pvalue = numeric(),
+    set = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in 1:nrow(lord_pairs)) {
+    driver <- scaf_pairs$x_name[i]
+    partner <- scaf_pairs$y_name[i]
+    
+    if (!(driver %in% lfcs_df$driver_gene) || !(partner %in% lfcs_df$partner_gene)) {
+      next
+    }
+    
+    matches <- lfcs_df[lfcs_df$driver_gene == driver & lfcs_df$partner_gene == partner, ]
+    if (length(matches) != 1) {
+      matches <- matches %>% 
+        dplyr::filter(delta_dependency == max(matches$delta_dependency))
+    }
+    dd_value <- matches$delta_dependency
+    p_value <- matches$pvalue
+    
+    if (!is.na(dd_value) && !is.na(p_value)) {
+      scaf_results <- rbind(scaf_results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        delta_dependency = dd_value,
+        pvalue = p_value,
+        set = "Known SL",
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  
+  # Generate random pairs
+  unique_drivers <- unique(lfcs_df$driver_gene)
+  unique_partners <- unique(lfcs_df$partner_gene)
+  unique_cancer_types <- unique(lfcs_df$cancer_types)
+  
+  # Create a function to generate random entries
+  random_results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    cancer_types = character(),
+    delta_dependency = numeric(),
+    pvalue = numeric(),
+    set = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  random_count <- 0
+  while(random_count < n_random) {
+    # Sample a random entry from lfcs_df
+    random_idx <- sample(1:nrow(lfcs_df), 1)
+    cancer_type <- lfcs_df$cancer_types[random_idx]
+    
+    # Sample random driver and partner
+    driver <- sample(unique_drivers, 1)
+    partner <- sample(unique_partners, 1)
+    
+    # Skip pairs that are in the SCAF set to ensure independence
+    if (any(scaf_results$driver_gene == driver & 
+            scaf_results$partner_gene == partner &
+            scaf_results$cancer_types == cancer_type)) {
+      next
+    }
+    
+    # Find this pair in lfcs_df for the sampled cancer type
+    match_idx <- which(lfcs_df$driver_gene == driver & 
+                        lfcs_df$partner_gene == partner & 
+                        lfcs_df$cancer_types == cancer_type)
+    
+    # If found, add to random results
+    if (length(match_idx) > 0) {
+      idx <- match_idx[1]  # Take the first if multiple
+      random_results <- rbind(random_results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        delta_dependency = lfcs_df$delta_dependency[idx],
+        pvalue = lfcs_df$pvalue[idx],
+        set = "Random",
+        stringsAsFactors = FALSE
+      ))
+      random_count <- random_count + 1
+    }
+  }
+  
+  # Combine results
+  all_results <- rbind(scaf_results, random_results)
+  
+  # Calculate summary statistics for both sets
+  lord_summary <- list(
+    total = nrow(scaf_results),
+    significant = sum(scaf_results$pvalue < 0.05),
+    positive_dd = sum(scaf_results$delta_dependency > 0),
+    both = sum(scaf_results$pvalue < 0.05 & scaf_results$delta_dependency > 0),
+    above_threshold = sum(scaf_results$delta_dependency > 0.1),
+    sig_and_threshold = sum(scaf_results$pvalue < 0.05 & scaf_results$delta_dependency > 0.1)
+  )
+  
+  random_summary <- list(
+    total = nrow(random_results),
+    significant = sum(random_results$pvalue < 0.05),
+    positive_dd = sum(random_results$delta_dependency > 0),
+    both = sum(random_results$pvalue < 0.05 & random_results$delta_dependency > 0),
+    above_threshold = sum(random_results$delta_dependency > 0.1),
+    sig_and_threshold = sum(random_results$pvalue < 0.05 & random_results$delta_dependency > 0.1)
+  )
+  
+  # Create side-by-side boxplot
+  p <- ggplot(all_results, aes(x = set, y = delta_dependency, fill = set)) +
+    geom_boxplot() +
+    geom_hline(yintercept = 0.2, linetype = "dashed", color = "red") +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +
+    scale_fill_manual(values = c("Known SL" = "lightblue", "Random" = "lightgrey")) +
+    labs(title = "Delta Dependency Score Distribution",
+         subtitle = "Known Synthetic Lethal Pairs vs. Random Gene Pairs",
+         x = "",
+         y = "Delta Dependency (WT - MUT)") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+    
+  return(list(
+    lord_summary = lord_summary,
+    random_summary = random_summary,
+    combined_data = all_results,
+    plot = p
+  ))
+}
+```
+
+```{r}
+# Run the comparison
+comparison <- compare_synth_vs_random(synlethDB, intersection_df, n_random = 1000)
+comparison$combined_data
+
+# Display results
+cat("Known SL Pairs (n =", comparison$lord_summary$total, "):\n")
+cat("- Statistically significant:", comparison$lord_summary$significant, 
+    "(", round(comparison$lord_summary$significant/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- Positive DD:", comparison$lord_summary$positive_dd, 
+    "(", round(comparison$lord_summary$positive_dd/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- Both significant & positive:", comparison$lord_summary$both, 
+    "(", round(comparison$lord_summary$both/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- DD > 0.1:", comparison$lord_summary$above_threshold, 
+    "(", round(comparison$lord_summary$above_threshold/comparison$lord_summary$total*100, 1), "%)\n")
+cat("- DD > 0.1 and significant:", comparison$lord_summary$sig_and_threshold, 
+    "(", round(comparison$lord_summary$sig_and_threshold/comparison$lord_summary$total*100, 1), "%)\n")
+
+cat("\nRandom Pairs (n =", comparison$random_summary$total, "):\n")
+cat("- Statistically significant:", comparison$random_summary$significant, 
+    "(", round(comparison$random_summary$significant/comparison$random_summary$total*100, 1), "%)\n")
+cat("- Positive DD:", comparison$random_summary$positive_dd, 
+    "(", round(comparison$random_summary$positive_dd/comparison$random_summary$total*100, 1), "%)\n")
+cat("- Both significant & positive:", comparison$random_summary$both, 
+    "(", round(comparison$random_summary$both/comparison$random_summary$total*100, 1), "%)\n")
+cat("- DD > 0.1:", comparison$random_summary$above_threshold, 
+    "(", round(comparison$random_summary$above_threshold/comparison$random_summary$total*100, 1), "%)\n")
+cat("- DD > 0.1 and significant:", comparison$random_summary$sig_and_threshold, 
+    "(", round(comparison$random_summary$sig_and_threshold/comparison$random_summary$total*100, 1), "%)\n")
+
+# Calculate enrichment ratios
+sig_enrichment <- (comparison$lord_summary$significant/comparison$lord_summary$total) / 
+                 (comparison$random_summary$significant/comparison$random_summary$total)
+pos_enrichment <- (comparison$lord_summary$positive_dd/comparison$lord_summary$total) / 
+                 (comparison$random_summary$positive_dd/comparison$random_summary$total)
+both_enrichment <- (comparison$lord_summary$both/comparison$lord_summary$total) / 
+                  (comparison$random_summary$both/comparison$random_summary$total)
+threshold_enrichment <- (comparison$lord_summary$above_threshold/comparison$lord_summary$total) / 
+                       (comparison$random_summary$above_threshold/comparison$random_summary$total)
+
+cat("\nEnrichment Ratios (Known SL vs Random):\n")
+cat("- Significant: ", round(sig_enrichment, 2), "x\n")
+cat("- Positive DD: ", round(pos_enrichment, 2), "x\n")
+cat("- Both: ", round(both_enrichment, 2), "x\n")
+cat("- DD > 0.2: ", round(threshold_enrichment, 2), "x\n")
+
+# Display the plot
+print(comparison$plot)
+```
+
+# Distribution
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(reshape2)
+library(gridExtra)
+library(moments) # For skewness and kurtosis calculations
+library(nortest) # For normality tests
+
+# Function to analyze and visualize dependency score distributions
+analyze_dependency_distribution <- function(driver_gene, partner_gene, cancer_type, 
+                                          profile_mat, mut_mat, CRISPR, METADATA) {
+  # Extract mutant and wild-type cell IDs
+  tmp <- mut_mat[driver_gene,] == 1
+  Pcell <- names(tmp)[tmp]  # Mutant cells
+  tmp <- mut_mat[driver_gene,] == 0
+  Ncell <- names(tmp)[tmp]  # Wild-type cells
+  
+  # Format cell IDs
+  Pcell <- gsub("\\.", "-", Pcell)
+  Ncell <- gsub("\\.", "-", Ncell)
+  
+  # Filter for the specific cancer type if provided
+  if (!is.na(cancer_type)) {
+    Pcell <- c(Pcell[METADATA[Pcell,]$primary_disease == cancer_type])
+    Ncell <- c(Ncell[METADATA[Ncell,]$primary_disease == cancer_type])
+  }
+  
+  # Get dependency scores for both groups
+  Pcell_dependencies <- CRISPR %>% 
+    filter(depmap_id %in% Pcell) %>% 
+    filter(gene_name == partner_gene) %>%
+    select(depmap_id, dependency)
+  
+  Ncell_dependencies <- CRISPR %>% 
+    filter(depmap_id %in% Ncell) %>% 
+    filter(gene_name == partner_gene) %>%
+    select(depmap_id, dependency)
+  
+  # Add group labels
+  Pcell_dependencies$group <- "MUT"
+  Ncell_dependencies$group <- "WT"
+  
+  # Combine the data
+  combined_data <- rbind(Pcell_dependencies, Ncell_dependencies)
+  
+  # Calculate summary statistics for each group
+  mut_stats <- Pcell_dependencies %>%
+    summarize(
+      n = n(),
+      mean = mean(dependency),
+      median = median(dependency),
+      sd = sd(dependency),
+      min = min(dependency),
+      max = max(dependency),
+      skewness = skewness(dependency),
+      kurtosis = kurtosis(dependency)
+    )
+  
+  wt_stats <- Ncell_dependencies %>%
+    summarize(
+      n = n(),
+      mean = mean(dependency),
+      median = median(dependency),
+      sd = sd(dependency),
+      min = min(dependency),
+      max = max(dependency),
+      skewness = skewness(dependency),
+      kurtosis = kurtosis(dependency)
+    )
+  
+  # Delta dependency calculation
+  delta_dependency <- wt_stats$mean - mut_stats$mean
+  
+  # Perform t-test
+  t_test_result <- t.test(Ncell_dependencies$dependency, Pcell_dependencies$dependency)
+  
+  # Perform normality tests
+  if(nrow(Pcell_dependencies) >= 8) {
+    mut_shapiro <- shapiro.test(Pcell_dependencies$dependency)
+  } else {
+    mut_shapiro <- list(p.value = NA)
+  }
+  
+  if(nrow(Ncell_dependencies) >= 8) {
+    wt_shapiro <- shapiro.test(Ncell_dependencies$dependency)
+  } else {
+    wt_shapiro <- list(p.value = NA)
+  }
+  
+  # Create density plot with mean lines and QQ plots
+  density_plot <- ggplot(combined_data, aes(x = dependency, fill = group)) +
+    geom_density(alpha = 0.5) +
+    geom_vline(data = mut_stats, aes(xintercept = mean, color = "MUT Mean"), 
+               linetype = "dashed", size = 1) +
+    geom_vline(data = wt_stats, aes(xintercept = mean, color = "WT Mean"), 
+               linetype = "dashed", size = 1) +
+    scale_color_manual(name = "", values = c("MUT Mean" = "red", "WT Mean" = "blue")) +
+    scale_fill_manual(values = c("MUT" = "red", "WT" = "blue")) +
+    labs(title = paste(partner_gene, "Dependency Distribution in", driver_gene, 
+                       ifelse(!is.na(cancer_type), paste0(" (", cancer_type, ")"), "")),
+         x = "Dependency Score", 
+         y = "Density") +
+    theme_bw() +
+    theme(legend.position = "bottom")
+  
+  # Create QQ plots
+  qq_plot_mut <- ggplot(Pcell_dependencies, aes(sample = dependency)) +
+    stat_qq() +
+    stat_qq_line() +
+    labs(title = paste("QQ Plot -", driver_gene, "Mutant Group"),
+         x = "Theoretical Quantiles", 
+         y = "Sample Quantiles") +
+    theme_bw()
+  
+  qq_plot_wt <- ggplot(Ncell_dependencies, aes(sample = dependency)) +
+    stat_qq() +
+    stat_qq_line() +
+    labs(title = paste("QQ Plot -", driver_gene, "Wild-type Group"),
+         x = "Theoretical Quantiles", 
+         y = "Sample Quantiles") +
+    theme_bw()
+  
+  # Create boxplot
+  boxplot <- ggplot(combined_data, aes(x = group, y = dependency, fill = group)) +
+    geom_boxplot() +
+    geom_jitter(width = 0.2, alpha = 0.5) +
+    stat_summary(fun = mean, geom = "point", shape = 18, size = 4, color = "black") +
+    scale_fill_manual(values = c("MUT" = "red", "WT" = "blue")) +
+    labs(title = paste(partner_gene, "Dependency in", driver_gene, "Groups"),
+         x = "Mutation Status", 
+         y = "Dependency Score") +
+    theme_bw() +
+    theme(legend.position = "none")
+  
+  # Collect results in a list
+  results <- list(
+    density_plot = density_plot,
+    qq_plot_mut = qq_plot_mut,
+    qq_plot_wt = qq_plot_wt,
+    boxplot = boxplot,
+    mut_stats = mut_stats,
+    wt_stats = wt_stats,
+    delta_dependency = delta_dependency,
+    t_test = t_test_result,
+    mut_shapiro = mut_shapiro,
+    wt_shapiro = wt_shapiro,
+    mut_sample_size = nrow(Pcell_dependencies),
+    wt_sample_size = nrow(Ncell_dependencies)
+  )
+  
+  return(results)
+}
+
+# Function to run a Mann-Whitney U test as an alternative to t-test
+run_mann_whitney_test <- function(driver_gene, partner_gene, cancer_type, 
+                                 profile_mat, mut_mat, CRISPR, METADATA) {
+  # Extract mutant and wild-type cell IDs
+  tmp <- mut_mat[driver_gene,] == 1
+  Pcell <- names(tmp)[tmp]  # Mutant cells
+  tmp <- mut_mat[driver_gene,] == 0
+  Ncell <- names(tmp)[tmp]  # Wild-type cells
+  
+  # Format cell IDs
+  Pcell <- gsub("\\.", "-", Pcell)
+  Ncell <- gsub("\\.", "-", Ncell)
+  
+  # Filter for the specific cancer type if provided
+  if (!is.na(cancer_type)) {
+    Pcell <- c(Pcell[METADATA[Pcell,]$primary_disease == cancer_type])
+    Ncell <- c(Ncell[METADATA[Ncell,]$primary_disease == cancer_type])
+  }
+  
+  # Get dependency scores for both groups
+  Pcell_dependencies <- CRISPR %>% 
+    filter(depmap_id %in% Pcell) %>% 
+    filter(gene_name == partner_gene) %>%
+    select(depmap_id, dependency)
+  
+  Ncell_dependencies <- CRISPR %>% 
+    filter(depmap_id %in% Ncell) %>% 
+    filter(gene_name == partner_gene) %>%
+    select(depmap_id, dependency)
+  
+  # Perform Mann-Whitney U test (Wilcoxon rank sum test)
+  wilcox_test_result <- wilcox.test(Ncell_dependencies$dependency, Pcell_dependencies$dependency)
+  
+  # Calculate hodges-lehmann estimator for effect size
+  hl_estimator <- wilcox.test(Ncell_dependencies$dependency, Pcell_dependencies$dependency, 
+                              conf.int = TRUE)$estimate
+  
+  return(list(
+    wilcox_test = wilcox_test_result,
+    hodges_lehmann_estimator = hl_estimator
+  ))
+}
+
+# Function to compare both tests across multiple gene pairs
+compare_test_methods <- function(gene_pairs, cancer_type, profile_mat, mut_mat, CRISPR, METADATA) {
+  results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    t_test_p_value = numeric(),
+    wilcox_test_p_value = numeric(),
+    delta_dependency = numeric(),
+    hodges_lehmann_estimator = numeric(),
+    mut_sample_size = integer(),
+    wt_sample_size = integer(),
+    mut_shapiro_p = numeric(),
+    wt_shapiro_p = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in 1:nrow(gene_pairs)) {
+    driver <- gene_pairs[i, "driver_gene"]
+    partner <- gene_pairs[i, "partner_gene"]
+    
+    # Run t-test analysis
+    t_analysis <- analyze_dependency_distribution(driver, partner, cancer_type, 
+                                                 profile_mat, mut_mat, CRISPR, METADATA)
+    
+    # Run Mann-Whitney test
+    mw_analysis <- run_mann_whitney_test(driver, partner, cancer_type, 
+                                        profile_mat, mut_mat, CRISPR, METADATA)
+    
+    # Add results to dataframe
+    results <- rbind(results, data.frame(
+      driver_gene = driver,
+      partner_gene = partner,
+      t_test_p_value = t_analysis$t_test$p.value,
+      wilcox_test_p_value = mw_analysis$wilcox_test$p.value,
+      delta_dependency = t_analysis$delta_dependency,
+      hodges_lehmann_estimator = mw_analysis$hodges_lehmann_estimator,
+      mut_sample_size = t_analysis$mut_sample_size,
+      wt_sample_size = t_analysis$wt_sample_size,
+      mut_shapiro_p = ifelse(is.na(t_analysis$mut_shapiro$p.value), NA, t_analysis$mut_shapiro$p.value),
+      wt_shapiro_p = ifelse(is.na(t_analysis$wt_shapiro$p.value), NA, t_analysis$wt_shapiro$p.value),
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  return(results)
+}
+
+# To use these functions for the examples from the paper:
+# 1. First, analyze distribution of RB1-AHR in bladder cancer:
+results_rb1_ahr <- analyze_dependency_distribution("RB1", "AHR", "Bladder Cancer",
+                                                 mut_spec_dependencyProfiles[["Bladder Cancer"]],
+                                                 mutation_matrix, CRISPR, METADATA)
+
+# # 2. To compare t-test and Mann-Whitney test for multiple gene pairs:
+gene_pairs <- data.frame(
+  driver_gene = c("RB1", "RB1", "TP53"),
+  partner_gene = c("AHR", "CDK2", "PTPN11"),
+  stringsAsFactors = FALSE
+)
+
+test_comparison <- compare_test_methods(gene_pairs, "Bladder Cancer",
+                                       mut_spec_dependencyProfiles[["Bladder Cancer"]],
+                                       mutation_matrix, CRISPR, METADATA)
+# 
+# # 3. To create a summary report combining multiple distributions:
+grid.arrange(
+  results_rb1_ahr$density_plot,
+  results_rb1_ahr$boxplot,
+  results_rb1_ahr$qq_plot_mut,
+  results_rb1_ahr$qq_plot_wt,
+  ncol = 2
+)
+```
+
+```{r}
+analyze_dependency_distribution <- function(driver_gene, partner_gene, cancer_type, 
+                                          profile_mat, mut_mat, CRISPR, METADATA) {
+  # Extract mutant and wild-type cell IDs
+  tmp <- mut_mat[driver_gene,] == 1
+  Pcell <- names(tmp)[tmp]  # Mutant cells
+  tmp <- mut_mat[driver_gene,] == 0
+  Ncell <- names(tmp)[tmp]  # Wild-type cells
+  
+  # Format cell IDs
+  Pcell <- gsub("\\.", "-", Pcell)
+  Ncell <- gsub("\\.", "-", Ncell)
+  
+  # Filter for the specific cancer type if provided
+  if (!is.na(cancer_type) && cancer_type != "pan") {
+    Pcell <- Pcell[Pcell %in% rownames(METADATA)]
+    Ncell <- Ncell[Ncell %in% rownames(METADATA)]
+    
+    Pcell <- Pcell[METADATA[Pcell,]$primary_disease == cancer_type]
+    Ncell <- Ncell[METADATA[Ncell,]$primary_disease == cancer_type]
+  }
+  
+  # Get dependency scores for both groups
+  Pcell_dependencies <- CRISPR %>% 
+    filter(depmap_id %in% Pcell) %>% 
+    filter(gene_name == partner_gene) %>%
+    select(depmap_id, dependency)
+  
+  Ncell_dependencies <- CRISPR %>% 
+    filter(depmap_id %in% Ncell) %>% 
+    filter(gene_name == partner_gene) %>%
+    select(depmap_id, dependency)
+  
+  # Add group labels
+  Pcell_dependencies$group <- "MUT"
+  Ncell_dependencies$group <- "WT"
+  
+  # Combine the data
+  combined_data <- rbind(Pcell_dependencies, Ncell_dependencies)
+  
+  # Calculate summary statistics for each group
+  mut_stats <- Pcell_dependencies %>%
+    summarize(
+      n = n(),
+      mean = mean(dependency),
+      median = median(dependency),
+      sd = sd(dependency),
+      min = min(dependency),
+      max = max(dependency),
+      skewness = ifelse(n() >= 3, skewness(dependency), NA),
+      kurtosis = ifelse(n() >= 3, kurtosis(dependency), NA)
+    )
+  
+  wt_stats <- Ncell_dependencies %>%
+    summarize(
+      n = n(),
+      mean = mean(dependency),
+      median = median(dependency),
+      sd = sd(dependency),
+      min = min(dependency),
+      max = max(dependency),
+      skewness = ifelse(n() >= 3, skewness(dependency), NA),
+      kurtosis = ifelse(n() >= 3, kurtosis(dependency), NA)
+    )
+  
+  # Delta dependency calculation
+  delta_dependency <- wt_stats$mean - mut_stats$mean
+  
+  # Perform t-test
+  t_test_result <- t.test(Ncell_dependencies$dependency, Pcell_dependencies$dependency)
+  
+  # Perform Mann-Whitney test
+  wilcox_test_result <- wilcox.test(Ncell_dependencies$dependency, Pcell_dependencies$dependency)
+  
+  # Perform normality tests if sufficient sample size
+  if(nrow(Pcell_dependencies) >= 8) {
+    mut_shapiro <- shapiro.test(Pcell_dependencies$dependency)
+  } else {
+    mut_shapiro <- list(p.value = NA)
+  }
+  
+  if(nrow(Ncell_dependencies) >= 8) {
+    wt_shapiro <- shapiro.test(Ncell_dependencies$dependency)
+  } else {
+    wt_shapiro <- list(p.value = NA)
+  }
+  
+  # Create density plot with mean lines
+  density_plot <- ggplot(combined_data, aes(x = dependency, fill = group)) +
+    geom_density(alpha = 0.5) +
+    geom_vline(data = mut_stats, aes(xintercept = mean, color = "MUT Mean"), 
+               linetype = "dashed", size = 1) +
+    geom_vline(data = wt_stats, aes(xintercept = mean, color = "WT Mean"), 
+               linetype = "dashed", size = 1) +
+    scale_color_manual(name = "", values = c("MUT Mean" = "red", "WT Mean" = "blue")) +
+    scale_fill_manual(values = c("MUT" = "red", "WT" = "blue")) +
+    labs(title = paste(partner_gene, "Dependency Distribution in", driver_gene, 
+                       ifelse(!is.na(cancer_type), paste0(" (", cancer_type, ")"), "")),
+         x = "Dependency Score", 
+         y = "Density") +
+    theme_bw() +
+    theme(legend.position = "bottom")
+  
+  # Create QQ plots
+  qq_plot_mut <- ggplot(Pcell_dependencies, aes(sample = dependency)) +
+    stat_qq() +
+    stat_qq_line() +
+    labs(title = paste("QQ Plot -", driver_gene, "Mutant Group"),
+         x = "Theoretical Quantiles", 
+         y = "Sample Quantiles") +
+    theme_bw()
+  
+  qq_plot_wt <- ggplot(Ncell_dependencies, aes(sample = dependency)) +
+    stat_qq() +
+    stat_qq_line() +
+    labs(title = paste("QQ Plot -", driver_gene, "Wild-type Group"),
+         x = "Theoretical Quantiles", 
+         y = "Sample Quantiles") +
+    theme_bw()
+  
+  # Create boxplot
+  boxplot <- ggplot(combined_data, aes(x = group, y = dependency, fill = group)) +
+    geom_boxplot() +
+    geom_jitter(width = 0.2, alpha = 0.5) +
+    stat_summary(fun = mean, geom = "point", shape = 18, size = 4, color = "black") +
+    scale_fill_manual(values = c("MUT" = "red", "WT" = "blue")) +
+    labs(title = paste(partner_gene, "Dependency in", driver_gene, "Groups"),
+         x = "Mutation Status", 
+         y = "Dependency Score") +
+    theme_bw() +
+    theme(legend.position = "none")
+  
+  # Create a table with statistics
+  stats_table <- data.frame(
+    Group = c("MUT", "WT"),
+    N = c(mut_stats$n, wt_stats$n),
+    Mean = c(mut_stats$mean, wt_stats$mean),
+    Median = c(mut_stats$median, wt_stats$median),
+    SD = c(mut_stats$sd, wt_stats$sd),
+    Skewness = c(mut_stats$skewness, wt_stats$skewness),
+    Kurtosis = c(mut_stats$kurtosis, wt_stats$kurtosis),
+    Shapiro_p = c(ifelse(is.na(mut_shapiro$p.value), "insufficient N", round(mut_shapiro$p.value, 4)),
+                  ifelse(is.na(wt_shapiro$p.value), "insufficient N", round(wt_shapiro$p.value, 4)))
+  )
+  
+  test_results <- data.frame(
+    Test = c("t-test", "Mann-Whitney"),
+    p_value = c(t_test_result$p.value, wilcox_test_result$p.value),
+    Effect_Size = c(delta_dependency, wilcox_test_result$estimate)
+  )
+  
+  # Collect results in a list
+  results <- list(
+    density_plot = density_plot,
+    qq_plot_mut = qq_plot_mut,
+    qq_plot_wt = qq_plot_wt,
+    boxplot = boxplot,
+    mut_stats = mut_stats,
+    wt_stats = wt_stats,
+    delta_dependency = delta_dependency,
+    t_test = t_test_result,
+    wilcox_test = wilcox_test_result,
+    mut_shapiro = mut_shapiro,
+    wt_shapiro = wt_shapiro,
+    mut_sample_size = nrow(Pcell_dependencies),
+    wt_sample_size = nrow(Ncell_dependencies),
+    stats_table = stats_table,
+    test_results = test_results
+  )
+  
+  return(results)
+}
+
+create_distribution_panel <- function(driver_gene, partner_gene, cancer_type, 
+                                    profile_mat, mut_mat, CRISPR, METADATA) {
+  
+  results <- analyze_dependency_distribution(driver_gene, partner_gene, cancer_type, 
+                                           profile_mat, mut_mat, CRISPR, METADATA)
+  
+  # Create a plot title
+  title <- paste0(partner_gene, " Dependency in ", driver_gene, " ", 
+                 ifelse(!is.na(cancer_type), paste0("(", cancer_type, ")"), ""))
+  
+  # Format test results as a text annotation
+  test_info <- paste0(
+    "Statistical Tests:\n",
+    "t-test p-value = ", format(results$t_test$p.value, digits = 3), "\n",
+    "Mann-Whitney p-value = ", format(results$wilcox_test$p.value, digits = 3), "\n",
+    "Delta Dependency = ", format(results$delta_dependency, digits = 3), "\n",
+    "N(MUT) = ", results$mut_sample_size, ", N(WT) = ", results$wt_sample_size
+  )
+  
+  # Create the panel for distribution plots
+  panel <- plot_grid(
+    results$density_plot + ggtitle(NULL) + theme(legend.position = "none"),
+    results$boxplot + ggtitle(NULL),
+    ncol = 2,
+    labels = c("A", "B")
+  )
+  
+  # Create a plot with the statistical information
+  stats_plot <- ggplot() + 
+    theme_void() + 
+    annotate("text", x = 0.5, y = 0.5, label = test_info, hjust = 0.5, vjust = 0.5) +
+    theme(plot.margin = margin(10, 10, 10, 10))
+  
+  # Combine everything into a final plot
+  final_plot <- plot_grid(
+    ggdraw() + draw_label(title, fontface = 'bold', size = 14),
+    panel,
+    stats_plot,
+    ncol = 1,
+    rel_heights = c(0.1, 0.7, 0.2)
+  )
+  
+  return(list(plot = final_plot, results = results))
+}
+
+```
+
+```{r}
+key_examples <- data.frame(
+  driver_gene = c("RB1", "RB1", "TP53"),
+  partner_gene = c("AHR", "CDK2", "PTPN11"),
+  cancer_type = c("Bladder Cancer", "Bladder Cancer", "Ovarian Cancer"),
+  stringsAsFactors = FALSE
+)
+
+# Generate plots for each example
+plots_list <- list()
+for(i in 1:nrow(key_examples)) {
+  driver <- key_examples$driver_gene[i]
+  partner <- key_examples$partner_gene[i]
+  cancer <- key_examples$cancer_type[i]
+  
+  result <- create_distribution_panel(driver, partner, cancer,
+                                   mut_spec_dependencyProfiles[[cancer]],
+                                   mutation_matrix, CRISPR, METADATA)
+  
+  plots_list[[i]] <- result$plot
+}
+
+# Combine all plots into a single figure
+combined_plot <- plot_grid(plotlist = plots_list, ncol = 1)
+
+# Save the combined plot
+ggsave("dependency_distributions.png", combined_plot, width = 10, height = 14)
+```
+
+```{r}
+# Fixed function to analyze test concordance
+# Addressing the "invalid subscript type 'list'" error
+
+library(tidyverse)
+library(knitr)
+
+# Function to analyze all identified synthetic lethal pairs
+analyze_test_concordance <- function(intersection_df, 
+                                    mut_spec_dependencyProfiles, 
+                                    mutation_matrix, 
+                                    CRISPR, 
+                                    METADATA,
+                                    alpha = 0.05) {
+  
+  # Create results dataframe
+  results <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    cancer_types = character(),
+    t_test_p_value = numeric(),
+    wilcox_test_p_value = numeric(),
+    delta_dependency = numeric(),
+    t_test_significant = logical(),
+    wilcox_test_significant = logical(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Process each pair in the intersection dataframe
+  for(i in 1:nrow(intersection_df)) {
+    # Extract values as character strings
+    driver <- as.character(intersection_df[i, "driver_gene"])
+    partner <- as.character(intersection_df[i, "partner_gene"])
+    cancer_type <- as.character(intersection_df[i, "cancer_types"])
+    
+    # Debug print to verify data types
+    cat("Processing pair:", driver, "-", partner, "in", cancer_type, "\n")
+    cat("Data types:", class(driver), class(partner), class(cancer_type), "\n")
+    
+    # Skip if cancer_type is not available in dependencyProfiles
+    if(!cancer_type %in% names(mut_spec_dependencyProfiles)) {
+      cat("Skipping - cancer type not found in profiles\n")
+      next
+    }
+    
+    # Skip if driver is not in mutation_matrix
+    if(!driver %in% rownames(mutation_matrix)) {
+      cat("Skipping - driver gene not found in mutation matrix\n")
+      next
+    }
+    
+    # Extract mutant and wild-type cell IDs
+    tryCatch({
+      tmp <- mutation_matrix[driver,] == 1
+      Pcell <- names(tmp)[tmp]  # Mutant cells
+      tmp <- mutation_matrix[driver,] == 0
+      Ncell <- names(tmp)[tmp]  # Wild-type cells
+      
+      # Format cell IDs
+      Pcell <- gsub("\\.", "-", Pcell)
+      Ncell <- gsub("\\.", "-", Ncell)
+      
+      # Filter for the specific cancer type
+      if(cancer_type != "pan") {
+        # Make sure the cell IDs exist in METADATA
+        Pcell <- Pcell[Pcell %in% rownames(METADATA)]
+        Ncell <- Ncell[Ncell %in% rownames(METADATA)]
+        
+        Pcell <- c(Pcell[METADATA[Pcell,]$primary_disease == cancer_type])
+        Ncell <- c(Ncell[METADATA[Ncell,]$primary_disease == cancer_type])
+      }
+      
+      # Get dependency scores for both groups
+      Pcell_dependencies <- CRISPR %>% 
+        filter(depmap_id %in% Pcell) %>% 
+        filter(gene_name == partner) %>%
+        select(depmap_id, dependency)
+      
+      Ncell_dependencies <- CRISPR %>% 
+        filter(depmap_id %in% Ncell) %>% 
+        filter(gene_name == partner) %>%
+        select(depmap_id, dependency)
+      
+      # Skip if not enough samples
+      if(nrow(Pcell_dependencies) < 3 || nrow(Ncell_dependencies) < 3) {
+        cat("Skipping - not enough samples\n")
+        next
+      }
+      
+      # Perform t-test
+      t_test_result <- t.test(Ncell_dependencies$dependency, Pcell_dependencies$dependency)
+      
+      # Perform Mann-Whitney U test
+      wilcox_test_result <- wilcox.test(Ncell_dependencies$dependency, Pcell_dependencies$dependency)
+      
+      # Calculate delta dependency
+      delta_dependency <- mean(Ncell_dependencies$dependency) - mean(Pcell_dependencies$dependency)
+      
+      cat("Analysis completed:", driver, "-", partner, 
+          "t-test p =", t_test_result$p.value, 
+          "wilcox p =", wilcox_test_result$p.value, "\n")
+      
+      # Add to results
+      results <- rbind(results, data.frame(
+        driver_gene = driver,
+        partner_gene = partner,
+        cancer_types = cancer_type,
+        t_test_p_value = t_test_result$p.value,
+        wilcox_test_p_value = wilcox_test_result$p.value,
+        delta_dependency = delta_dependency,
+        t_test_significant = t_test_result$p.value < alpha,
+        wilcox_test_significant = wilcox_test_result$p.value < alpha,
+        stringsAsFactors = FALSE
+      ))
+    }, error = function(e) {
+      cat("Error processing pair:", driver, "-", partner, "in", cancer_type, "\n")
+      cat("Error message:", e$message, "\n")
+    })
+  }
+  
+  # Calculate concordance metrics
+  if(nrow(results) > 0) {
+    total_pairs <- nrow(results)
+    t_test_significant <- sum(results$t_test_significant)
+    wilcox_test_significant <- sum(results$wilcox_test_significant)
+    both_significant <- sum(results$t_test_significant & results$wilcox_test_significant)
+    t_test_only <- sum(results$t_test_significant & !results$wilcox_test_significant)
+    wilcox_only <- sum(!results$t_test_significant & results$wilcox_test_significant)
+    
+    # Percentage of t-test significant pairs that are also significant in wilcoxon
+    percent_remained_significant <- ifelse(t_test_significant > 0, 
+                                         round(both_significant / t_test_significant * 100, 1), 
+                                         0)
+    
+    # Calculate overall concordance (both tests agree - either both significant or both non-significant)
+    concordance <- sum((results$t_test_significant & results$wilcox_test_significant) | 
+                      (!results$t_test_significant & !results$wilcox_test_significant)) / total_pairs * 100
+    
+    # Print summary
+    cat("\n=== SUMMARY ===\n")
+    cat("Total pairs analyzed:", total_pairs, "\n")
+    cat("Significant with t-test:", t_test_significant, "\n")
+    cat("Significant with Mann-Whitney:", wilcox_test_significant, "\n")
+    cat("Significant with both tests:", both_significant, "\n")
+    cat("Significant with t-test only:", t_test_only, "\n")
+    cat("Significant with Mann-Whitney only:", wilcox_only, "\n")
+    cat("Percentage of t-test significant pairs also significant with Mann-Whitney:", percent_remained_significant, "%\n")
+    cat("Overall concordance between tests:", round(concordance, 1), "%\n")
+    
+    # Return summary statistics
+    summary_stats <- list(
+      total_pairs = total_pairs,
+      t_test_significant = t_test_significant,
+      wilcox_test_significant = wilcox_test_significant,
+      both_significant = both_significant,
+      t_test_only = t_test_only,
+      wilcox_only = wilcox_only,
+      percent_remained_significant = percent_remained_significant,
+      concordance = concordance,
+      results = results
+    )
+    
+    return(summary_stats)
+  } else {
+    cat("No valid pairs were processed. Check your input data.\n")
+    return(NULL)
+  }
+}
+
+# Function to create a summary table of the concordance analysis
+create_concordance_table <- function(summary_stats) {
+  table_data <- data.frame(
+    "Metric" = c(
+      "Total SL pairs analyzed",
+      "Significant by t-test",
+      "Significant by Mann-Whitney U test",
+      "Significant by both tests",
+      "Significant by t-test only",
+      "Significant by Mann-Whitney U test only",
+      "% of t-test significant pairs that remained significant with Mann-Whitney",
+      "Overall concordance between tests (%)"
+    ),
+    "Value" = c(
+      summary_stats$total_pairs,
+      summary_stats$t_test_significant,
+      summary_stats$wilcox_test_significant,
+      summary_stats$both_significant,
+      summary_stats$t_test_only,
+      summary_stats$wilcox_only,
+      summary_stats$percent_remained_significant,
+      round(summary_stats$concordance, 1)
+    )
+  )
+  
+  return(table_data)
+}
+
+
+concordance_results <- analyze_test_concordance(final_pairs,
+                                             mut_spec_dependencyProfiles,
+                                             mutation_matrix,
+                                             CRISPR,
+                                             METADATA)
+
+percentage <- concordance_results$percent_remained_significant
+
+write.csv(concordance_results$results, 'Distribution_suppl.csv')
+```
+
+# PolyPhen Enrichment
+
+```{r}
+# Function to analyze enrichment of damaging mutations
+analyze_damaging_enrichment <- function(mutation_data, min_frequency = 0.05) {
+  # Calculate background rate of damaging mutations across all genes
+  total_muts <- nrow(mutation_data)
+  damaging_muts <- sum(mutation_data$is_deleterious, na.rm = TRUE)
+  background_rate <- damaging_muts / total_muts
+  
+  cat("Background damaging mutation rate:", round(background_rate * 100, 2), "%\n")
+  
+  # Get frequently mutated genes (≥5% of cell lines)
+  cell_lines <- unique(mutation_data$depmap_id)
+  total_cells <- length(cell_lines)
+  
+  # Count mutations by gene
+  gene_freq <- table(mutation_data$gene_name)
+  gene_cell_counts <- tapply(mutation_data$depmap_id, mutation_data$gene_name, function(x) length(unique(x)))
+  
+  # Identify frequent genes
+  frequent_genes <- names(gene_cell_counts[gene_cell_counts >= min_frequency * total_cells])
+  cat("Identified", length(frequent_genes), "genes mutated in ≥", min_frequency * 100, "% of cell lines\n")
+  
+  # Initialize results
+  results <- data.frame(
+    gene = character(),
+    total_mutations = integer(),
+    damaging_mutations = integer(),
+    damaging_percentage = numeric(),
+    enrichment_ratio = numeric(),
+    p_value = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Analyze each frequent gene
+  for (gene in frequent_genes) {
+    gene_muts <- mutation_data[mutation_data$gene_name == gene, ]
+    total_mut_count <- nrow(gene_muts)
+    
+    # Count damaging mutations
+    damaging_count <- sum(gene_muts$is_deleterious, na.rm = TRUE)
+    
+    # Calculate percentage and enrichment
+    damaging_percentage <- (damaging_count / total_mut_count) * 100
+    enrichment_ratio <- (damaging_count / total_mut_count) / background_rate
+    
+    # Statistical test
+    p_value <- binom.test(damaging_count, total_mut_count, background_rate, alternative = "greater")$p.value
+    
+    # Add to results
+    results <- rbind(results, data.frame(
+      gene = gene,
+      total_mutations = total_mut_count,
+      damaging_mutations = damaging_count,
+      damaging_percentage = damaging_percentage,
+      enrichment_ratio = enrichment_ratio, 
+      p_value = p_value,
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  # Adjust p-values
+  results$adjusted_p_value <- p.adjust(results$p_value, method = "BH")
+  results$significant <- results$adjusted_p_value < 0.05
+  
+  # Sort by significance
+  results <- results[order(results$adjusted_p_value), ]
+  
+  # Summarize
+  significant_genes <- results$gene[results$significant]
+  cat("Genes with significant damaging mutation enrichment:", length(significant_genes), 
+      "(", round(length(significant_genes)/length(frequent_genes)*100, 1), "%)\n")
+  
+  return(list(
+    results = results,
+    significant_genes = significant_genes,
+    background_rate = background_rate
+  ))
+}
+
+# Run the analysis
+damaging_analysis <- analyze_damaging_enrichment(MUT)
+
+# Print top genes with enrichment
+head(damaging_analysis$results, 10)
+
+# Save complete results
+# write.csv(damaging_analysis$results, "driver_gene_damaging_enrichment.csv", row.names = FALSE)
+```
+
+
+# Fold enrichment
+
+```{r}
+# Calculate enrichment
+enrichment_results <- fig_data %>%
+  tidyr::pivot_wider(names_from = type, values_from = c(STRING_TRUE, STRING_FALSE)) %>%
+  mutate(
+    SLAYER_proportion = STRING_TRUE_SLANT / (STRING_TRUE_SLANT + STRING_FALSE_SLANT),
+    Random_proportion = `STRING_TRUE_Potential pairs` / (`STRING_TRUE_Potential pairs` + `STRING_FALSE_Potential pairs`),
+    X_fold_enrichment = SLAYER_proportion / Random_proportion
+  )
+
+# Calculate overall X-fold enrichment
+total_SLAYER_TRUE <- sum(fig_data[fig_data$type == "SLANT", ]$STRING_TRUE)
+total_SLAYER_FALSE <- sum(fig_data[fig_data$type == "SLANT", ]$STRING_FALSE)
+total_Random_TRUE <- sum(fig_data[fig_data$type == "Potential pairs", ]$STRING_TRUE)
+total_Random_FALSE <- sum(fig_data[fig_data$type == "Potential pairs", ]$STRING_FALSE)
+
+overall_SLAYER_proportion <- total_SLAYER_TRUE / (total_SLAYER_TRUE + total_SLAYER_FALSE)
+overall_Random_proportion <- total_Random_TRUE / (total_Random_TRUE + total_Random_FALSE)
+
+overall_X_fold_enrichment <- overall_SLAYER_proportion / overall_Random_proportion
+
+# Display Overall Enrichment
+cat("Overall X-fold Enrichment:", overall_X_fold_enrichment, "\n")
+```
+

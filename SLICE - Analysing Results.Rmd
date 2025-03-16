@@ -7,14 +7,14 @@ library(circlize)
 library(readr)
 library(survival)
 library(survminer)
-
+library(cowplot)
 tic()
 
 ```
 
 ```{r paths}
-DEPENDENCY_PROFILES_HEATMAP_PATH <- "/bigdata/zivcohen/graphs/dependency_profiles/"
-SURVIVAL_DATA_TCGA <- "/bigdata/zivcohen/SLICE_aux_analysis/RB1_survival_tcga.txt"
+DEPENDENCY_PROFILES_HEATMAP_PATH <- "plots/dependency_profiles/"
+SURVIVAL_DATA_TCGA <- "RB1_survival_tcga.txt"
 
 ```
 
@@ -124,6 +124,117 @@ View(intersection_df)
 
 ```
 
+## kate 
+
+```{r eval=FALSE, include=FALSE}
+# Initialize empty dataframes for lfcs and pvalues
+lfcs_df <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    cancer_types = character(),
+    delta_dependency = numeric(),
+    stringsAsFactors = FALSE
+)
+
+pvalues_df <- data.frame(
+    driver_gene = character(),
+    partner_gene = character(),
+    cancer_types = character(),
+    pvalue = numeric(),
+    stringsAsFactors = FALSE
+)
+
+process_matrix <- function(matrix_data, matrix_name, threshold, df, type) {
+    matrix_data <- matrix_data[, colnames(matrix_data) %in% druggable_genes, drop = FALSE]
+
+    # Extract driver and partner gene names
+    driver_genes <- rownames(matrix_data)
+    partner_genes <- colnames(matrix_data)
+    
+    # Find pairs with the given threshold
+    if(type == "pvalue"){
+      indices <- which(matrix_data <= threshold, arr.ind = TRUE)
+
+      # Check if there are non-empty results before creating the dataframe
+      if (length(indices) > 0) {
+        result_vector <- c()
+        for(i in 1:length(driver_genes[indices[, 1]])){
+          result_vector[i] <- matrix_data[driver_genes[indices[, 1]][i], partner_genes[indices[, 2]][i]]
+        }
+        
+        current_df <- data.frame(
+            driver_gene = driver_genes[indices[, 1]],
+            partner_gene = partner_genes[indices[, 2]],
+            cancer_types = matrix_name,
+            pvalue = result_vector,
+            stringsAsFactors = FALSE
+        )
+        
+        # Append to the input dataframe
+        return(rbind(df, current_df))
+      } else {
+          return(df)
+      }
+    }
+    else{
+      indices <- which(abs(matrix_data) >= threshold, arr.ind = TRUE)
+      
+      # Check if there are non-empty results before creating the dataframe
+      if (length(indices) > 0) {
+        result_vector <- c()
+        for(i in 1:length(driver_genes[indices[, 1]])){
+          result_vector[i] <- matrix_data[driver_genes[indices[, 1]][i],
+                                          partner_genes[indices[, 2]][i]]
+        }
+        
+        current_df <- data.frame(
+            driver_gene = driver_genes[indices[, 1]],
+            partner_gene = partner_genes[indices[, 2]],
+            cancer_types = matrix_name,
+            delta_dependency = result_vector,
+            stringsAsFactors = FALSE
+        )
+        
+        # Append to the input dataframe
+        return(rbind(df, current_df))
+      } else {
+          return(df)
+      }
+    }
+}
+
+# Iterate through the list of matrices (mut_spec_lfcs)
+for (i in seq_along(mut_spec_lfcs)) {
+    matrix_name <- names(mut_spec_lfcs)[i]
+    matrix_data_lfcs <- mut_spec_lfcs[[i]]
+    
+    lfcs_df <- process_matrix(matrix_data_lfcs, matrix_name, 0, lfcs_df, "LFC")
+}
+lfcs_df <- process_matrix(lfc_matrix, "pan", 0, lfcs_df, "LFC")
+
+# Iterate through the list of matrices (mut_spec_pvalues)
+for (i in seq_along(mut_spec_pvalues)) {
+    matrix_name <- names(mut_spec_pvalues)[i]
+    matrix_data_pvalues <- mut_spec_pvalues[[i]]
+        
+    pvalues_df <- process_matrix(matrix_data_pvalues, matrix_name, 1, pvalues_df, "pvalue")
+    print(nrow(pvalues_df))
+}
+pvalues_df <- process_matrix(pvalue_matrix, "pan", 1, pvalues_df, "pvalue")
+
+# Find the intersection of lfcs_df and pvalues_df
+intersection_df <- merge(lfcs_df, pvalues_df, by = c("driver_gene", "partner_gene", "cancer_types"))
+
+# Print the resulting intersection dataframe
+View(intersection_df)
+
+```
+
+```{r}
+lfcs_df %>% 
+  dplyr::filter(cancer_types == 'pan')
+```
+
 ```{r filtering pSLPs - only frequent drivers (mutated in >15% of the population)}
 # Install and load necessary packages
 library(cbioportalR)
@@ -191,13 +302,95 @@ for(cancer_type in colnames(cbio_driver_freq)){
     cbio_driver_freq[gene_name,cancer_type] <- cbio_driver_freq[gene_name,cancer_type] / nrow(cbio_relevant_studies)
   }
 }
-
+library(qs)
+# qsave(cbio_driver_freq, 'cbio_driver_freq.qs')
+cbio_driver_freq <- qread('cbio_driver_freq.qs')
+intersection_df$driver_freq <- NA
 for(i in 1:nrow(intersection_df)){
   intersection_df[i,]$driver_freq <- cbio_driver_freq[intersection_df[i,]$driver_gene,intersection_df[i,]$cancer_types]
 }
 
+
 final_pairs <- intersection_df %>% filter(driver_freq > 15)
 
+```
+
+```{r}
+# For each SLI pair
+pathway_scores <- data.frame()
+
+for (i in 1:nrow(intersection_df)) {
+  current_pair <- intersection_df[i,]
+  driver <- current_pair$driver_gene
+  partner <- current_pair$partner_gene
+  cancer <- current_pair$cancer_types
+  
+  # Get cell lines for this cancer
+  current_depmap_ids <- METADATA$depmap_id[METADATA$primary_disease == cancer]
+  
+  # Get correlation data for this cancer type
+  if (cancer == "pan") {
+    corr_data <- correlation_dfs[["pan"]]
+  } else {
+    corr_data <- correlation_dfs[[cancer]]
+  }
+  
+  # Filter for the partner gene
+  partner_corr <- corr_data %>% filter(gene_name == partner)
+  
+  # Calculate pathway score based on strongest correlations
+  if (nrow(partner_corr) > 0) {
+    # Find top correlations (whether positive or negative)
+    top_corrs <- partner_corr %>% 
+      mutate(abs_corr = abs(Correlation)) %>%
+      arrange(desc(abs_corr)) %>%
+      head(5)  # Consider top 5 pathways
+    
+    pathway_score <- mean(top_corrs$abs_corr)
+    significant_pathways <- sum(top_corrs$P_Value < 0.05)
+  } else {
+    pathway_score <- 0
+    significant_pathways <- 0
+  }
+  
+  pathway_scores <- rbind(pathway_scores, data.frame(
+    driver_gene = driver,
+    partner_gene = partner, 
+    cancer_types = cancer,
+    pathway_score = pathway_score,
+    significant_pathways = significant_pathways
+  ))
+}
+
+intersection_df$pathway_score <- pathway_scores$pathway_score
+intersection_df <- intersection_df %>% 
+  dplyr::filter(pathway_score > 0.2)
+```
+
+## Kate's advanced filtering
+
+```{r}
+cosmic <- read.csv('cosmic.csv')
+intogen <- read.csv('IntOGen.tsv', sep = '\t')
+oncoKB <- read.csv('oncoKB.tsv', sep = '\t')
+```
+
+```{r}
+final_pairs <- intersection_df %>% 
+  dplyr::filter(driver_freq > 15) %>%
+  dplyr::filter(driver_gene %in% cosmic$Gene.Symbol | partner_gene %in% cosmic$Gene.Symbol |
+                  driver_gene %in% oncoKB$Hugo.Symbol | partner_gene %in% oncoKB$Hugo.Symbol |
+                  driver_gene %in% intogen$Symbol | partner_gene %in% intogen$Symbol)
+
+
+```
+
+```{r}
+final_pairs_uniq$STRING %>% sum()
+```
+
+```{r}
+write.csv(final_pairs, 'final_pairs.csv')
 ```
 
 # STRINGdb Literary Validation
@@ -215,7 +408,7 @@ library(stringr)
 
 STRING_analysis <- function(my_genes, print = F){
   # Define the parameters
-  string_api_url <- "https://version-11-5.string-db.org/api"
+  string_api_url <- "https://string-db.org/api" # v12.0
   output_format <- "tsv-no-header"
   method <- "interaction_partners"
   
@@ -226,7 +419,7 @@ STRING_analysis <- function(my_genes, print = F){
   params <- list(
     identifiers = paste(my_genes, collapse = "%0d"),
     species = 9606, # species NCBI identifier
-    limit = 100,
+    limit = 0,
     caller_identity = "www.awesome_app.org" # your app name
   )
   
@@ -271,13 +464,18 @@ final_pairs <- add_STRING_status(final_pairs)
 
 ```
 
+```{r}
+write.csv(final_pairs, 'final_pairs.csv')
+```
+
 ```{r STRING meta analysis}
 STRING_meta_analysis <- function(driver_genes, partner_genes){
+  # browser()
   # Define the parameters
-  string_api_url <- "https://version-11-5.string-db.org/api"
+  string_api_url <- "https://string-db.org/api"
   output_format <- "tsv-no-header"
   method <- "interaction_partners"
-  
+                            
   results <- matrix(FALSE, nrow = length(driver_genes), ncol = length(partner_genes))
   row.names(results) <- driver_genes
   colnames(results) <- partner_genes
@@ -289,7 +487,7 @@ STRING_meta_analysis <- function(driver_genes, partner_genes){
   params <- list(
     identifiers = paste(driver_genes, collapse = "%0d"),
     species = 9606, # species NCBI identifier
-    limit = 100,
+    limit = 0,
     caller_identity = "www.awesome_app.org" # your app name
   )
   
@@ -309,7 +507,7 @@ STRING_meta_analysis <- function(driver_genes, partner_genes){
     combined_score <- fields[6]
   
     # Print the results
-    if(partner_name %in% partner_genes){
+    if(partner_name %in% partner_genes & query_name %in% driver_genes){
       results[query_name, partner_name] <- TRUE
     }
   }
@@ -325,7 +523,9 @@ STRING_ratios <- data.frame(name = character(),
 
 na_slice <- list()
 
+
 for (i in seq_along(mut_spec_pvalues)) {
+  
     print(names(mut_spec_pvalues)[i])
     all_freq <- as.numeric(table(STRING_meta_analysis(row.names(mut_spec_pvalues[[i]]),
                                                       colnames(mut_spec_pvalues[[i]]))))
@@ -339,14 +539,14 @@ for (i in seq_along(mut_spec_pvalues)) {
     STRING_ratios <- rbind(STRING_ratios,
                            data.frame(
                              name = names(mut_spec_pvalues)[i],
-                             type = "ALL",
+                             type = "Potential pairs",
                              STRING_TRUE = all_freq[2],
                              STRING_FALSE = all_freq[1],
                              ratio = all_freq[2]/(all_freq[2]+all_freq[1])
                              ),
                            data.frame(
                              name = names(mut_spec_pvalues)[i],
-                             type = "SLICE",
+                             type = "SLANT",
                              STRING_TRUE = slice_freq[2],
                              STRING_FALSE = slice_freq[1],
                              ratio = slice_freq[2]/(slice_freq[2]+slice_freq[1])
@@ -388,11 +588,26 @@ slice_freq <- as.numeric(table((final_pairs %>%
 #                          )
 #                        )
 
-ggplot(STRING_ratios %>% filter(!(name %in% na_slice)), aes(fill = type, y = ratio * 100, x = name)) +
+p5 <- ggplot(STRING_ratios %>% filter(!(name %in% na_slice)), aes(fill = type, y = ratio * 100, x = name)) +
   geom_bar(position = "dodge", stat = "identity") +
   coord_flip() +
-  labs(y = "%Literature approved") +
+  labs(y = "%Validated pairs", x='') +
+  scale_fill_discrete(labels = c("Potential pairs", "SLAYER")) +
   theme_minimal()
+p5
+# ggsave(path = "/home/katepetrenko/ziv_slice/plots/",
+#        device = "pdf", filename = "val_pairs_barplot.pdf", plot = p5,
+#        width = 6, height = 4) 
+
+ggplot(STRING_ratios, aes(fill = type, y = ratio * 100, x = name)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  coord_flip() +
+  labs(y = "%Validated pairs", x='') +
+  scale_fill_discrete(labels = c("Potential pairs", "SLAYER")) +
+  theme_minimal()
+```
+
+```{r}
 
 ```
 
@@ -426,7 +641,6 @@ View(result_df)
 ```{r cancer-specific dependency profiles - ignore}
 library("colorspace")
 library(ComplexHeatmap)
-
 ht_maps <- c()
 
 for(cancerType in names(mut_spec_pvalues)){
@@ -468,17 +682,17 @@ for(cancerType in names(mut_spec_pvalues)){
   ht_maps <- c(ht_maps, ht)
   
   if(cancerType == "Lung Cancer"){
-    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
-       height = 1000, width = 1600, units = "px", res = 100)
+    # jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+    #    height = 1000, width = 1600, units = "px", res = 100)
     draw(ht)
-    dev.off()
+    # dev.off()
     next
   }
   
-  jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
-       height = 600, width = 1600, units = "px", res = 200)
+  # jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+  #      height = 600, width = 1600, units = "px", res = 200)
   draw(ht)
-  dev.off()
+  # dev.off()
 }
 
 ```
@@ -536,7 +750,7 @@ for(cancerType in names(mut_spec_pvalues)){
     show_row_dend = FALSE, show_column_dend = FALSE, cluster_rows = FALSE,
     name = "DD squared",
     border_gp = gpar(col = "black", lty = 2), rect_gp = gpar(type = "none"), # border and gaps
-    row_title = "driver genes", row_title_side = "left", column_title = "partners", column_title_side = "bottom", # titles
+    row_title = "Driver Genes", row_title_side = "left", column_title = "", column_title_side = "bottom", # titles
     row_names_side = "left", row_names_gp = gpar(fontsize = 10), column_names_gp = gpar(fontsize = 10),
     layer_fun = function(j, i, x, y, width, height, fill) {
       pvalue = pindex(data_pvalue, i, j)
@@ -564,7 +778,7 @@ for(cancerType in names(mut_spec_pvalues)){
                   gp = gpar(fill = col_fun(dd), col = NA))
       
       v = pindex(data_pvalue, i, j)
-      l = v > 0 & v < 1e-03
+      l = v > 0 & v < 1e-02
       if(any(l)){
         grid.text(sprintf(ifelse(v[l], "*", "")), x[l], y[l], gp = gpar(fontsize = 15))
       }
@@ -574,42 +788,52 @@ for(cancerType in names(mut_spec_pvalues)){
   ht_maps <- c(ht_maps, ht)
   
   if(cancerType == "Lung Cancer"){
-    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+    png(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".png",sep=""),
        height = 1000, width = 5000, units = "px", res = 100)
     draw(ht)
     dev.off()
     next
   }
   if(cancerType == "Ovarian Cancer"){
-    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+    png(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".png",sep=""),
        height = 600, width = 2500, units = "px", res = 200)
     draw(ht)
     dev.off()
     next
   }
   if(cancerType == "Skin Cancer"){
-    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+    png(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".png",sep=""),
        height = 1000, width = 5000, units = "px", res = 200)
     draw(ht)
     dev.off()
     next
   }
   if(cancerType == "Brain Cancer"){
-    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+    png(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".png",sep=""),
        height = 600, width = 2500, units = "px", res = 200)
     draw(ht)
     dev.off()
     next
   }
   if(cancerType == "Head and Neck Cancer"){
-    jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+    png(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".png",sep=""),
        height = 600, width = 2200, units = "px", res = 200)
     draw(ht)
     dev.off()
     next
   }
   
-  jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".jpeg",sep=""),
+  if(cancerType == "Bladder Cancer"){
+    png(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".png",sep=""),
+       height = 600, width = 2200, units = "px", res = 200)
+    png("plots/figure4a.png",width=10,height=3.5,units="in",res=1200)
+    draw(ht)
+    
+    dev.off()
+    next
+  }
+  
+  png(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,cancerType,".png",sep=""),
        height = 600, width = 1800, units = "px", res = 200)
   draw(ht)
   dev.off()
@@ -621,8 +845,8 @@ for(cancerType in names(mut_spec_pvalues)){
 library("colorspace")
 library(ComplexHeatmap)
 
-drivers <- read_lines(pate(DEPENDENCY_PROFILES_HEATMAP_PATH,"rows.txt",sep=""))
-partners <- read_lines(pate(DEPENDENCY_PROFILES_HEATMAP_PATH,"cols.txt",sep=""))
+drivers <- read_lines(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,"rows.txt",sep=""))
+partners <- read_lines(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,"cols.txt",sep=""))
 
 data_dds <- list()
 data_pvalues <- list()
@@ -709,11 +933,11 @@ ht <- Heatmap(
 lgd = Legend(labels = names(mut_spec_pvalues), legend_gp = gpar(fill = color_list), title = "Cancer Types", 
     ncol = 1, title_position = "leftcenter")
 
-jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,"all_results_circles.jpeg",sep=""),
-     height = 5000, width = 10000, units = "px", res = 200)
+# jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,"all_results_circles.jpeg",sep=""),
+#      height = 5000, width = 10000, units = "px", res = 200)
 draw(ht)
 draw(lgd, x = unit(0.01, "npc"), y = unit(0.5, "npc"), just = c("left"))
-dev.off()
+# dev.off()
 
 
 ```
@@ -765,7 +989,7 @@ ht <- Heatmap(
   # 2nd legend (#cancers)
   bottom_annotation = HeatmapAnnotation("number of cancers" = colSums(data_dd != 0),
                                         col = list("number of cancers" = colorRamp2(c(0, 4), c("white", "blue"))),
-                                        show_annotation_name = FALSE,
+                                        show_annotation_name = FALSE, simple_anno_size = unit(1, "cm"),
                                         annotation_legend_param = list(grid_height = unit(2,"cm"),
                                                                        legend_width = unit(12, "cm"),
                                                                        title_gp = gpar(fontsize = 30),
@@ -783,14 +1007,14 @@ ht <- Heatmap(
   # adding "*" to significant cells
   layer_fun = function(j, i, x, y, width, height, fill) {
     v = pindex(data_pvalue, i, j)
-    l = v > 0 & v < 1e-03
+    l = v > 0 & v < 1e-02
     if(any(l)){
       grid.text(sprintf(ifelse(v[l], "*", "")), x[l], y[l], gp = gpar(fontsize = 30))
     }
   }
 )
 
-jpeg(paste(DEPENDENCY_PROFILES_HEATMAP_PATH,"all_results_top_pairs.jpeg",sep=""),
+png(paste('',"all_results_top_pairs.png",sep=""),
      height = 6000, width = 14500, units = "px", res = 300)
 draw(ht, heatmap_legend_side = "bottom", annotation_legend_side = "bottom")
 dev.off()
@@ -901,160 +1125,289 @@ RB1_wt <- unique(tcga_bladder_clinical$patientId[!(tcga_bladder_clinical$patient
 
 ```
 
-
-# Additional boxplots
-
-```{r breast}
-p1 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Breast Cancer"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Breast Cancer",
-        driver_gene = "TTN",
-        goi = "GLS",
-        DD_thresh = 0,
-        paper_version = T
-    )
-p2 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Breast Cancer"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Breast Cancer",
-        driver_gene = "TTN",
-        goi = "ARPC2",
-        DD_thresh = 0,
-        paper_version = T
-    )
-boxplots <- ggdraw() +
-    draw_plot(ggarrange(plotlist = list(
-        p1 + ylim(-1.0, 0.5) +
-	ggtitle(label = "GLS", subtitle = strsplit(p1$labels$title, "\n")[[1]][2]),
-        p2 + ylim(-1.0, 0.5) +
-	ggtitle(label = "ARPC2", subtitle = strsplit(p2$labels$title, "\n")[[1]][2])
-    ), nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
-    draw_label("Top SLPs for TTN-mutated breast cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
-
-print(boxplots)
-
-```
-
-```{r ovarian}
-p1 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Ovarian Cancer"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Ovarian Cancer",
-        driver_gene = "TP53",
-        goi = "PTPN11",
-        DD_thresh = 0,
-        paper_version = T
-    )
-boxplots <- ggdraw() +
-    draw_plot(ggarrange(plotlist = list(
-        p1 + ylim(-1.2, 0.2) +
-	ggtitle(label = "PTPN11", subtitle = strsplit(p1$labels$title, "\n")[[1]][2])),
-    nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
-    draw_label("Top SLP for TP53-mutated ovarian cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
-
-print(boxplots)
-
-```
-
-```{r lymphoma}
-p1 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Lymphoma"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Lymphoma",
-        driver_gene = "KMT2D",
-        goi = "SLC15A4",
-        DD_thresh = 0,
-        paper_version = T
-    )
-p2 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Lymphoma"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Lymphoma",
-        driver_gene = "KMT2D",
-        goi = "ATP1A2",
-        DD_thresh = 0,
-        paper_version = T
-    )
-boxplots <- ggdraw() +
-    draw_plot(ggarrange(plotlist = list(
-        p1 + ylim(-0.4, 0.6) +
-	ggtitle(label = "SLC15A4", subtitle = strsplit(p1$labels$title, "\n")[[1]][2]),
-        p2 + ylim(-0.4, 0.6) +
-	ggtitle(label = "ATP1A2", subtitle = strsplit(p2$labels$title, "\n")[[1]][2])
-    ), nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
-    draw_label("Top SLPs for KMT2D-mutated lymphoma cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
-
-print(boxplots)
-
-```
-
-```{r lung}
-p1 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Lung Cancer"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Lung Cancer",
-        driver_gene = "RYR2",
-        goi = "BCL2L1",
-        DD_thresh = 0,
-        paper_version = T
-    )
-boxplots <- ggdraw() +
-    draw_plot(ggarrange(plotlist = list(
-        p1 + ylim(-2.5, 0.1) +
-	ggtitle(label = "BCL2L1", subtitle = strsplit(p1$labels$title, "\n")[[1]][2])),
-    nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
-    draw_label("Top SLP for RYR2-mutated lung cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
-
-print(boxplots)
-
-```
-
-```{r skin}
-p1 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Skin Cancer"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Skin Cancer",
-        driver_gene = "TPTE",
-        goi = "GRIN2C",
-        DD_thresh = 0,
-        paper_version = T
-    )
-p2 <- box_profile(
-        profile_mat = mut_spec_dependencyProfiles[["Skin Cancer"]],
-        mut_mat = mutation_matrix,
-        type = "specific",
-        cancer_type = "Skin Cancer",
-        driver_gene = "TP53",
-        goi = "ATP2A2",
-        DD_thresh = 0,
-        paper_version = T
-    )
-boxplots <- ggdraw() +
-    draw_plot(ggarrange(plotlist = list(
-        p1 + ylim(-2, 0.5) +
-	ggtitle(label = "GRIN2C in TPTE-mutated cells", subtitle = strsplit(p1$labels$title, "\n")[[1]][2]),
-        p2 + ylim(-2, 0.5) +
-	ggtitle(label = "ATP2A2 in TP53-mutated cells", subtitle = strsplit(p2$labels$title, "\n")[[1]][2])
-    ), nrow = 1), width = 1, height = 0.95, x = 0, y = 0) +
-    draw_label("Top SLPs for skin cancer cells", size = 20, x = 0.5, y = 0.95, hjust = 0.5)
-
-print(boxplots)
-
-```
-
 # Notify me
 
-```{r send message to slack}
+```{r send message to slack, eval=FALSE, include=FALSE}
 msg <- list(text=paste("shinySLICE - data loading completed:", toc()[4]))
 webhook <- "???"
 POST(webhook, encode = "json", body = msg)
 
 ```
+
+# Validations by other services
+
+```{r}
+dataset1 <- readxl::read_xlsx('dataset1_Schaffer.xlsx')
+
+final_pairs$driver_gene %in% dataset1$mut_gene
+```
+```{r}
+# Clean the target_gene column - some entries have multiple genes
+validation_pairs1 <- dataset1 %>%
+  separate_rows(target_gene, sep="/") %>%
+  # Remove NA values
+  filter(!is.na(mut_gene) & !is.na(target_gene)) %>%
+  # Select just the gene columns
+  select(mut_gene, target_gene)
+
+validation_pairs1 %>% arrange(mut_gene, target_gene)
+```
+
+```{r}
+validate_sl_pairs <- function(predicted_pairs, validation_pairs) {
+  validated_pairs <- predicted_pairs %>%
+    mutate(validated = mapply(function(d, p) {
+      any(validation_pairs$mut_gene == d & validation_pairs$target_gene == p)
+    }, driver_gene, partner_gene))
+  
+  # Calculate validation statistics
+  total_pairs <- nrow(validated_pairs)
+  validated_count <- sum(validated_pairs$validated)
+  validation_rate <- validated_count / total_pairs
+  
+  # Results by cancer type
+  cancer_stats <- validated_pairs %>%
+    group_by(cancer_types) %>%
+    summarize(
+      total = n(),
+      validated = sum(validated),
+      rate = validated/total
+    )
+  
+  return(list(
+    validated_pairs = validated_pairs,
+    overall_rate = validation_rate,
+    cancer_stats = cancer_stats
+  ))
+}
+```
+
+```{r}
+validation_results1 <- validate_sl_pairs(final_pairs, validation_pairs1)
+
+# Print overall validation rate
+print(paste("Overall validation rate:", 
+            round(validation_results1$overall_rate * 100, 2), "%"))
+
+# Print validation rates by cancer type
+print(validation_results1$cancer_stats)
+
+# Look at validated pairs
+validated <- validation_results1$validated_pairs %>%
+  filter(validated == TRUE)
+print(validated)
+```
+
+```{r}
+dataset2 <- readxl::read_xlsx('dataset2_shen2017_nature.xlsx', sheet = 2, skip = 1)
+```
+
+```{r}
+validate_sl_pairs2 <- function(predicted_pairs, validation_pairs) {
+  validated_pairs <- predicted_pairs %>%
+    mutate(validated = mapply(function(d, p) {
+      any(validation_pairs$geneB...3 == d & validation_pairs$geneA...2 == p)
+    }, driver_gene, partner_gene))
+  
+  # Calculate validation statistics
+  total_pairs <- nrow(validated_pairs)
+  validated_count <- sum(validated_pairs$validated)
+  validation_rate <- validated_count / total_pairs
+  
+  # Results by cancer type
+  cancer_stats <- validated_pairs %>%
+    group_by(cancer_types) %>%
+    summarize(
+      total = n(),
+      validated = sum(validated),
+      rate = validated/total
+    )
+  
+  return(list(
+    validated_pairs = validated_pairs,
+    overall_rate = validation_rate,
+    cancer_stats = cancer_stats
+  ))
+}
+```
+
+```{r}
+validation_results2 <- validate_sl_pairs2(final_pairs, dataset2)
+
+# Print overall validation rate
+print(paste("Overall validation rate:", 
+            round(validation_results2$overall_rate * 100, 2), "%"))
+
+# Print validation rates by cancer type
+print(validation_results2$cancer_stats)
+
+# Look at validated pairs
+validated <- validation_results2$validated_pairs %>%
+  filter(validated == TRUE)
+print(validated)
+```
+
+# Total pairs counts
+
+```{r}
+# Create a data frame to store the results
+pair_counts <- data.frame(
+  cancer_type = character(),
+  driver_genes = numeric(),
+  partner_genes = numeric(),
+  total_pairs = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Iterate through each cancer type
+for (cancer_type in names(mut_spec_lfcs)) {
+  # Get the matrix for this cancer type
+  matrix_data <- mut_spec_lfcs[[cancer_type]]
+  
+  # Count the number of driver genes (rows) and partner genes (columns)
+  n_drivers <- nrow(matrix_data)
+  n_partners <- ncol(matrix_data)
+  
+  # Calculate total possible pairs
+  total_pairs <- n_drivers * n_partners
+  
+  # Add to the data frame
+  pair_counts <- rbind(pair_counts, 
+                       data.frame(cancer_type = cancer_type,
+                                 driver_genes = n_drivers,
+                                 partner_genes = n_partners,
+                                 total_pairs = total_pairs))
+}
+
+# Display the results
+print(pair_counts)
+```
+
+```{r}
+# Function to calculate possible pair counts
+count_possible_pairs <- function() {
+  # Create a data frame to store results
+  pair_counts <- data.frame(
+    cancer_type = character(),
+    driver_genes = numeric(),
+    druggable_genes = numeric(),
+    total_possible_pairs = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Count for cancer-specific matrices
+  for (cancer_type in names(mut_spec_lfcs)) {
+    # Get the full matrices
+    matrix_data <- mut_spec_lfcs[[cancer_type]]
+    
+    # Count driver genes (rows)
+    n_drivers <- nrow(matrix_data)
+    
+    # Count druggable genes that are available as columns
+    druggable_cols <- intersect(colnames(matrix_data), druggable_genes)
+    n_druggable <- length(druggable_cols)
+    
+    # Calculate total possible pairs
+    total_pairs <- n_drivers * n_druggable
+    
+    # Add to data frame
+    pair_counts <- rbind(pair_counts, 
+                        data.frame(cancer_type = cancer_type,
+                                  driver_genes = n_drivers,
+                                  druggable_genes = n_druggable,
+                                  total_possible_pairs = total_pairs))
+  }
+  
+  # Also add pan-cancer analysis
+  n_drivers_pan <- nrow(lfc_matrix)
+  druggable_cols_pan <- intersect(colnames(lfc_matrix), druggable_genes)
+  n_druggable_pan <- length(druggable_cols_pan)
+  total_pairs_pan <- n_drivers_pan * n_druggable_pan
+  
+  pair_counts <- rbind(pair_counts,
+                      data.frame(cancer_type = "pan",
+                                driver_genes = n_drivers_pan,
+                                druggable_genes = n_druggable_pan,
+                                total_possible_pairs = total_pairs_pan))
+  
+  return(pair_counts)
+}
+
+# Run the function and display results
+pair_counts <- count_possible_pairs()
+print(pair_counts)
+
+# Get range for response
+min_pairs <- min(pair_counts$total_possible_pairs)
+max_pairs <- max(pair_counts$total_possible_pairs)
+```
+
+```{r}
+write.csv(final_pairs %>% 
+  arrange(delta_dependency), 'final_pairs_wilcox.csv')
+```
+
+```{r}
+intersection_df %>% 
+  dplyr::filter(cancer_types == 'pan') %>% 
+  .$
+```
+
+# Pathway analysis
+
+```{r}
+# For each SLI pair
+pathway_scores <- data.frame()
+
+for (i in 1:nrow(final_pairs)) {
+  current_pair <- final_pairs[i,]
+  driver <- current_pair$driver_gene
+  partner <- current_pair$partner_gene
+  cancer <- current_pair$cancer_types
+  
+  # Get cell lines for this cancer
+  current_depmap_ids <- METADATA$depmap_id[METADATA$primary_disease == cancer]
+  
+  # Get correlation data for this cancer type
+  if (cancer == "pan") {
+    corr_data <- correlation_dfs[["pan"]]
+  } else {
+    corr_data <- correlation_dfs[[cancer]]
+  }
+  
+  # Filter for the partner gene
+  partner_corr <- corr_data %>% filter(gene_name == partner)
+  
+  # Calculate pathway score based on strongest correlations
+  if (nrow(partner_corr) > 0) {
+    # Find top correlations (whether positive or negative)
+    top_corrs <- partner_corr %>% 
+      mutate(abs_corr = abs(Correlation)) %>%
+      arrange(desc(abs_corr)) %>%
+      head(5)  # Consider top 5 pathways
+    
+    pathway_score <- mean(top_corrs$abs_corr)
+    significant_pathways <- sum(top_corrs$P_Value < 0.05)
+  } else {
+    pathway_score <- 0
+    significant_pathways <- 0
+  }
+  
+  pathway_scores <- rbind(pathway_scores, data.frame(
+    driver_gene = driver,
+    partner_gene = partner, 
+    cancer_types = cancer,
+    pathway_score = pathway_score,
+    significant_pathways = significant_pathways
+  ))
+}
+
+pathway_scores %>% 
+  dplyr::arrange(desc(pathway_score))
+
+write.csv(  pathway_scores %>% 
+  dplyr::arrange(desc(pathway_score)), 'final_pairs_pathway_nocomp.csv')
+```
+
+
+

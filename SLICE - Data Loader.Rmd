@@ -4,11 +4,11 @@
 Remember to run 'Functions.Rmd' before this script!
 
 ```{r paths}
-DEPMAP_FILES_FOLDER <- "/bigdata/zivcohen/DepMap/"
-COMMON_GENES_FILE <- "/bigdata/zivcohen/ShinyData/common_genes.txt"
-PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/MUT/Pan/"
-CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/MUT/Specific/"
-PATHWAY_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/Expression/"
+DEPMAP_FILES_FOLDER <- "./"
+COMMON_GENES_FILE <- "ShinyData/common_genes.txt"
+PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX <- "ShinyData/MUT/Pan/"
+CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX <- "ShinyData/MUT/Specific/"
+PATHWAY_ANALYSIS_PREFIX <- "ShinyData/Expression/"
 
 ```
 
@@ -44,7 +44,6 @@ for (gs in gene_sets) {
 druggable_genes <- read.csv(paste(DEPMAP_FILES_FOLDER,"Corsello.csv",sep=""))
 druggable_genes <- unique(unlist(strsplit(druggable_genes$target, ", ")))
 druggable_genes <- na.omit(druggable_genes)
-
 ```
 
 # Read Stored SLICE Data
@@ -125,7 +124,7 @@ for(current_cancer_type in primary_disease){
 
 # Notify me on Slack that the run has finished
 
-```{r send message to slack}
+```{r send message to slack, eval=FALSE, include=FALSE}
 msg <- list(text=paste("shinySLICE - data loading completed:", toc()[4]))
 webhook <- "???"
 POST(webhook, encode = "json", body = msg)

@@ -78,30 +78,28 @@ DD_profile <- function(base_mat, mut_mat, cells, only_target = F, return_p_value
       nest() %>% 
       spread(key = Status, value = data) %>% 
       mutate(
-        t_test = map2(no,yes, ~{t.test(.x$dependency, .y$dependency) %>%
+        wilcox_test = map2(no, yes, ~{wilcox.test(.x$dependency, .y$dependency, exact = FALSE) %>%
             broom::tidy()}),
+        median_diff = map2_dbl(no, yes, ~{median(.y$dependency, na.rm = TRUE) - median(.x$dependency, na.rm = TRUE)}),
         no = map(no, nrow),
         yes = map(yes, nrow)
       ) %>% 
       unnest()
-    df <- df %>% mutate(qvalue = p.adjust(p.value,method='fdr'))
+    df <- df %>% mutate(qvalue = p.adjust(p.value, method='fdr'))
     
     if(return_p_value_for_gene[1]){
       return(df)
     }
     
-    #The matrix is filtered according to a few thresholds:
-    tmp <- df[,c('estimate','qvalue')]
+    # The matrix is filtered according to a few thresholds:
+    tmp <- df[,c('median_diff','qvalue')]
 
-    tmp[-log10(tmp$qvalue) < 2,]$estimate <- 0
-    #   Insignificant cells (-log10(PFDR) < 2) are considered 0.
-    tmp[tmp$estimate < 0.2,]$estimate <- 0        
-    # 	All values below 0.2 are considered 0.
+    tmp[-log10(tmp$qvalue) < 2,]$median_diff <- 0
+    # Insignificant cells (-log10(PFDR) < 2) are considered 0.
+    tmp[tmp$median_diff < 0.2,]$median_diff <- 0        
+    # All values below 0.2 are considered 0.
     
-    #tmp[(tmp$estimate < 0.2) & (tmp$estimate > -0.2),]$estimate <- 0
-    #Positive values below 0.2 and negative values above -0.2 are considered 0.
-    
-    base_mat[gene,] <- t(tmp$estimate)
+    base_mat[gene,] <- t(tmp$median_diff)
   }
   
   if(only_target){
@@ -114,6 +112,7 @@ DD_profile <- function(base_mat, mut_mat, cells, only_target = F, return_p_value
 }
 
 ```
+
 
 ```{r - box_profile() - documented}
 # The box_profile function gets 5 parameters:
@@ -398,30 +397,48 @@ ssgsea = function(X, gene_sets, alpha = 0.25, scale = T, norm = F, single = T) {
 enrichment_analysis <- function(GOIs, current_depmap_ids, approved_genes) {
   tmp <- funrar::stack_to_matrix(TPM %>% filter(depmap_id %in% current_depmap_ids),
                                  'gene_name', 'cell_line', 'rna_expression')
-  tmp <- tmp[approved_genes,]
+  valid_approved_genes <- intersect(approved_genes, rownames(tmp))
+  cat("Using", length(valid_approved_genes), "valid approved genes\n")
   
-  ssgsea_scores <- ssgsea(tmp, gene_sets)
-  enrichment_df <- melt(ssgsea_scores,
-                        varnames = c("gene_set", "cell_line"),
-                        value.name = "Enrichment")
-  
-  expanded_df <- expand.grid(gene_set = unique(enrichment_df$gene_set),
-                             cell_line = unique(enrichment_df$cell_line),
-                             gene_name = GOIs)
-  
-  expanded_df <- left_join(enrichment_df, expanded_df,
-                           by = c("gene_set" = "gene_set", "cell_line" = "cell_line"))
-
-  expanded_df <- left_join(expanded_df, CRISPR,
-                           by = c("gene_name" = "gene_name", "cell_line" = "cell_line"))
-  
-  correlation_df <- expanded_df %>%
-    group_by(gene_set, gene_name) %>%
-    filter(complete.cases(Enrichment, dependency)) %>%
-    summarize(Correlation = cor(Enrichment, dependency, method = "pearson"),
-              P_Value = cor.test(Enrichment, dependency, method = "pearson")$p.value)
-
-  return(correlation_df)
+  # Use only valid genes
+  if(length(valid_approved_genes) > 0) {
+    tmp <- tmp[valid_approved_genes,]
+    
+    # Continue with the rest of the function
+    ssgsea_scores <- ssgsea(tmp, gene_sets)
+    enrichment_df <- melt(ssgsea_scores,
+                          varnames = c("gene_set", "cell_line"),
+                          value.name = "Enrichment")
+    
+    # Create all combinations of gene sets, cell lines and genes of interest
+    expanded_df <- expand.grid(gene_set = unique(enrichment_df$gene_set),
+                              cell_line = unique(enrichment_df$cell_line),
+                              gene_name = GOIs)
+    
+    # Join with enrichment data
+    expanded_df <- left_join(enrichment_df, expanded_df,
+                            by = c("gene_set" = "gene_set", "cell_line" = "cell_line"))
+    
+    # Join with dependency data
+    expanded_df <- left_join(expanded_df, CRISPR,
+                            by = c("gene_name" = "gene_name", "cell_line" = "cell_line"))
+    
+    # Calculate correlation
+    correlation_df <- expanded_df %>%
+      group_by(gene_set, gene_name) %>%
+      filter(complete.cases(Enrichment, dependency)) %>%
+      summarize(Correlation = cor(Enrichment, dependency, method = "pearson"),
+                P_Value = cor.test(Enrichment, dependency, method = "pearson")$p.value)
+    
+    return(correlation_df)
+  } else {
+    # If no valid genes, return empty dataframe
+    cat("ERROR: No valid approved genes found in the expression matrix!\n")
+    return(data.frame(gene_set = character(), 
+                     gene_name = character(),
+                     Correlation = numeric(),
+                     P_Value = numeric()))
+  }
 }
 
 ```

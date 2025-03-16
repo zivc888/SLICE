@@ -4,10 +4,10 @@ Remember to run 'Functions.Rmd' before this script!
 
 ```{r paths}
 DEPMAP_FILES_FOLDER <- "/bigdata/zivcohen/DepMap/"
-COMMON_GENES_FILE <- "/bigdata/zivcohen/ShinyData/common_genes.txt"
-PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/MUT/Pan/"
-CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/MUT/Specific/"
-PATHWAY_ANALYSIS_PREFIX <- "/bigdata/zivcohen/ShinyData/Expression/"
+COMMON_GENES_FILE <- "/bigdata/katepetrenko/ziv/ShinyData/common_genes.txt"
+PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/katepetrenko/ziv/ShinyData/MUT/Pan/"
+CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX <- "/bigdata/katepetrenko/ziv/ShinyData/MUT/Specific/"
+PATHWAY_ANALYSIS_PREFIX <- "/bigdata/katepetrenko/ziv/ShinyData/Expression/"
 
 ```
 
@@ -18,7 +18,7 @@ TPM <- read_EH_file("TPM", DEPMAP_FILES_FOLDER)
 CRISPR <- read_EH_file("CRISPR", DEPMAP_FILES_FOLDER)
 METADATA <- read_EH_file("METADATA", DEPMAP_FILES_FOLDER)
 MUT <- read_EH_file("MUT", DEPMAP_FILES_FOLDER)
-
+SURF <- read.csv(paste0('/bigdata/zivcohen/', 'surfaceome.csv'))
 row.names(METADATA) <- METADATA$depmap_id
 
 ```
@@ -75,6 +75,69 @@ pan_cell_mut_mat_filt[pan_cell_mut_mat_filt>1] = 1
 
 ```
 
+```{r}
+create_filtering_summary_table <- function() {
+  # Create dataframe for results
+  # browser()
+  all_cancer_types <- unique(METADATA$primary_disease)
+  
+  supp_table <- data.frame(
+    "Cancer Type" = all_cancer_types,
+    "Total Cell Lines" = numeric(length(all_cancer_types)),
+    "Included Cell Lines" = numeric(length(all_cancer_types)),
+    "Excluded Cell Lines" = numeric(length(all_cancer_types)),
+    "Exclusion Rate" = character(length(all_cancer_types)),
+    "Used in Tissue Specific Analysis" = character(length(all_cancer_types)),
+    stringsAsFactors = FALSE
+  )
+  
+  # Calculate total cell lines per cancer type
+  for (i in 1:nrow(supp_table)) {
+    cancer_type <- supp_table$Cancer.Type[i]
+    supp_table$Total.Cell.Lines[i] <- sum(METADATA$primary_disease == cancer_type, na.rm = TRUE)
+  }
+  
+  # Calculate included and excluded cell lines
+  for (i in 1:nrow(supp_table)) {
+    cancer_type <- supp_table$Cancer.Type[i]
+    cancer_cells <- METADATA$depmap_id[METADATA$primary_disease == cancer_type]
+    supp_table$Included.Cell.Lines[i] <- sum(cancer_cells %in% non_hyper_mut_cells, na.rm = TRUE)
+    supp_table$Excluded.Cell.Lines[i] <- supp_table$Total.Cell.Lines[i] - supp_table$Included.Cell.Lines[i]
+    
+    # Calculate exclusion rate
+    if (supp_table$Total.Cell.Lines[i] > 0) {
+      exclusion_pct <- (supp_table$Excluded.Cell.Lines[i] / supp_table$Total.Cell.Lines[i]) * 100
+      supp_table$Exclusion.Rate[i] <- sprintf("%.1f%%", exclusion_pct)
+    } else {
+      supp_table$Exclusion.Rate[i] <- "0.0%"
+    }
+  }
+  
+  # Identify cancer types used in tissue-specific analysis
+  # This is based on your cancer_types_filt variable
+  for (i in 1:nrow(supp_table)) {
+    cancer_type <- supp_table$Cancer.Type[i]
+    supp_table$Used.in.Tissue.Specific.Analysis[i] <- 
+      ifelse(cancer_type %in% cancer_types_filt, "Yes", "No")
+  }
+  
+  # Sort by total cell lines (descending)
+  supp_table <- supp_table[order(supp_table$Total.Cell.Lines, decreasing = TRUE), ]
+  
+  return(supp_table)
+}
+
+# Generate and print the table
+supp_table <- create_filtering_summary_table()
+print(supp_table)
+```
+
+```{r}
+supp_table %>% 
+  dplyr::filter(Used.in.Tissue.Specific.Analysis == 'Yes') %>% 
+  pull(Included.Cell.Lines) %>% sum()
+```
+
 ```{r average}
 #Calculating the average value of each gene based on the matrix from part I. The average is equivalent to the appearance percentage of the gene across all cell lines.
 gene_average <- data.frame("gene_name" = row.names(pan_cell_mut_mat_filt), "average" = 0)
@@ -129,12 +192,12 @@ cancer_types_filt <- driver_count[driver_count$num_drivers > 1 & !is.na(driver_c
 
 ```{r calculating the pan-cellular map}
 #Filling the matrix with the following values: each cell contains the DD between the gene in the corresponding row and the gene in the corresponding column.
-tmp <- DD_profile(cross_cell_profile, pan_cell_mut_mat_filt, unique(CRISPR$depmap_id), T)
-if(type(tmp) == "list"){
-  cross_cell_profile <- tmp[[1]]
-  cross_cell_profile_target <- tmp[[2]]
+result <- DD_profile(cross_cell_profile, pan_cell_mut_mat_filt, unique(CRISPR$depmap_id), T)
+if(type(result) == "list"){
+  cross_cell_profile <- result[[1]]
+  cross_cell_profile_target <- result[[2]]
 } else{
-  cross_cell_profile <- tmp
+  cross_cell_profile <- result
 }
 
 
@@ -157,40 +220,39 @@ write_lines(common_genes, COMMON_GENES_FILE)
 ```
 
 ```{r MUT/pan}
-# Create empty lists to store LFC and p-value vectors
-lfc_list <- list()
-pvalue_list <- list()
+# library(parallel)
+# Preallocate lists with correct length
+lfc_list <- vector("list", length(common_genes))
+pvalue_list <- vector("list", length(common_genes))
+names(lfc_list) <- common_genes
+names(pvalue_list) <- common_genes
 
-# Loop for generating volcano plots
-for (gene in common_genes) {
-  tic(gene)
-  # Perform analysis and generate volcano plot for each gene
+# Use lapply instead of for loop for better efficiency
+tic("Processing genes")
+results <- lapply(common_genes, function(gene) {
   df <- DD_profile(cross_cell_profile, pan_cell_mut_mat_filt, unique(CRISPR$depmap_id),
                    return_p_value_for_gene = c(T, gene))
   
-  df <- df[, c("gene_name", "estimate", "estimate1", "estimate2", "qvalue")]
-  df$estimate1 <- df$estimate2 - df$estimate1
-  
-  df <- df[, c("gene_name", "estimate1", "qvalue")]
+  df <- df[, c("gene_name", "median_diff", "qvalue")]
   colnames(df) <- c("gene_name", "LFC", "qvalue")
-  
-  lfc <- df$LFC
-  names(lfc) <- df$gene_name
-  pvalue <- df$qvalue
-  names(pvalue) <- df$gene_name
-  
-  lfc_list[[gene]] <- lfc
-  pvalue_list[[gene]] <- pvalue
-  toc()
-}
+
+  list(LFC = setNames(df$LFC, df$gene_name),
+       pvalue = setNames(df$qvalue, df$gene_name))
+})
+
+# Extract LFC and p-value separately
+lfc_list <- lapply(results, `[[`, "LFC")
+pvalue_list <- lapply(results, `[[`, "pvalue")
+
+toc()
 
 # Convert lists to matrices
 lfc_matrix <- do.call(rbind, lfc_list)
 pvalue_matrix <- do.call(rbind, pvalue_list)
 
 
-write.table(lfc_matrix, file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_DATA,"lfc_matrix.csv",sep=""), sep = ",", row.names = TRUE)
-write.table(pvalue_matrix, file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_DATA,"pvalue_matrix.csv",sep=""), sep = ",", row.names = TRUE)
+write.table(lfc_matrix, file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"lfc_matrix.csv",sep=""), sep = ",", row.names = TRUE)
+write.table(pvalue_matrix, file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"pvalue_matrix.csv",sep=""), sep = ",", row.names = TRUE)
 
 ```
 
@@ -220,10 +282,8 @@ for(cancer in cancer_types_filt){
     df <- DD_profile(cancer_profile, cancer_mut_mat, cells,
                      return_p_value_for_gene = c(T, gene))
     
-    df <- df[, c("gene_name", "estimate", "estimate1", "estimate2", "qvalue")]
-    df$estimate1 <- df$estimate2 - df$estimate1
     
-    df <- df[, c("gene_name", "estimate1", "qvalue")]
+    df <- df[, c("gene_name", "median_diff", "qvalue")]
     colnames(df) <- c("gene_name", "LFC", "qvalue")
     
     lfc <- df$LFC
@@ -339,3 +399,169 @@ write.table(pan_cell_mut_mat_filt,
             sep = ",", row.names = TRUE)
 
 ```
+
+
+```{r}
+# Set paths (same as in original script)
+DEPMAP_FILES_FOLDER <- "./"
+COMMON_GENES_FILE <- "ShinyData/common_genes.txt"
+PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX <- "ShinyData/MUT/Pan/"
+CANCER_SPECIFIC_DRIVER_GENE_ANALYSIS_PREFIX <- "ShinyData/MUT/Specific/"
+PATHWAY_ANALYSIS_PREFIX <- "ShinyData/Expression/"
+
+# Load minimal required data
+TPM <- read_EH_file("TPM", DEPMAP_FILES_FOLDER)
+CRISPR <- read_EH_file("CRISPR", DEPMAP_FILES_FOLDER)
+METADATA <- read_EH_file("METADATA", DEPMAP_FILES_FOLDER)
+MUT <- read_EH_file("MUT", DEPMAP_FILES_FOLDER)
+row.names(METADATA) <- METADATA$depmap_id
+
+# Load MSigDB data 
+oncogenic_gene_sets <- msigdbr(species = "Homo sapiens", category = "C6")
+gene_sets <- as.list(unique(oncogenic_gene_sets$gs_name))
+names(gene_sets) <- gene_sets
+approved_genes <- intersect(unique(TPM$gene_name), unique(oncogenic_gene_sets$gene_symbol))
+for (gs in gene_sets) {
+  gene_sets[gs] <- as.list((oncogenic_gene_sets %>%
+                             filter(gs_name == gs) %>%
+                             filter(gene_symbol %in% approved_genes))
+                           ["human_gene_symbol"])
+}
+
+# Load druggable genes
+druggable_genes <- read.csv(paste(DEPMAP_FILES_FOLDER,"Corsello.csv",sep=""))
+druggable_genes <- unique(unlist(strsplit(druggable_genes$target, ", ")))
+druggable_genes <- na.omit(druggable_genes)
+
+# Recreate pan_cell_mut_mat_filt
+cat("Recreating mutation matrix...\n")
+pan_cell_mut <- data.frame("cell_line" = MUT$depmap_id,"gene_name" = MUT$gene_name,"status" = MUT$var_annotation)
+pan_cell_mut["status"][pan_cell_mut["status"] == "damaging"] <- 1
+pan_cell_mut["status"][pan_cell_mut["status"] != 1] <- 0
+pan_cell_mut$status <- as.numeric(pan_cell_mut$status)
+pan_cell_mut_mat <- funrar::stack_to_matrix(pan_cell_mut,'gene_name','cell_line','status')
+pan_cell_mut_mat[is.na(pan_cell_mut_mat)] = 0
+
+# Filter the matrix
+tmp <- colSums(pan_cell_mut_mat)
+non_hyper_mut_cells <- names(tmp)[tmp<100]
+pan_cell_mut_mat_filt <- pan_cell_mut_mat[,non_hyper_mut_cells]
+tmp <- rowSums(pan_cell_mut_mat)
+driver_genes <- names(tmp)[tmp>5]
+pan_cell_mut_mat_filt <- pan_cell_mut_mat_filt[driver_genes,]
+pan_cell_mut_mat_filt[pan_cell_mut_mat_filt>1] = 1
+
+# Free some memory
+rm(pan_cell_mut)
+rm(tmp)
+gc()
+
+# Read common genes
+common_genes <- readLines(COMMON_GENES_FILE)
+
+# Recreate cancer_types_filt and filtered_primary_disease
+cat("Identifying cancer types...\n")
+valid_cells <- intersect(colnames(pan_cell_mut_mat_filt), unique(CRISPR$depmap_id))
+valid_cells_df <- data.frame("cell_line" = valid_cells)
+valid_cells_df$cancer_type <- METADATA[valid_cells_df$cell_line,]$primary_disease
+row.names(valid_cells_df) <- valid_cells_df$cell_line
+SURF <- read.csv(paste0('surfaceome.csv'))
+
+cancer_types <- unique(valid_cells_df$cancer_type)
+driver_count <- data.frame("cancer_type" = cancer_types, "cell_lines" = NA, "num_drivers" = NA, "drivers" = NA)
+row.names(driver_count) <- driver_count$cancer_type
+
+for(cancer in cancer_types){
+  cells <- row.names(valid_cells_df[valid_cells_df$cancer_type == cancer,])
+  driver_count[cancer, ]$cell_lines <- length(cells)
+  
+  if(length(cells) > 1){
+    cancer_mut_mat <- pan_cell_mut_mat_filt[,cells]
+    tmp <- rowSums(cancer_mut_mat)
+    cancer_mut_mat <- cancer_mut_mat[names(tmp)[tmp >= 5], ]
+    
+    driver_count[cancer, ]$num_drivers <- length(row.names(cancer_mut_mat))
+    driver_count[cancer, ]$drivers <- paste(sort(row.names(cancer_mut_mat)), collapse = ", ")
+  }
+}
+
+cancer_types_filt <- driver_count[driver_count$num_drivers > 1 & !is.na(driver_count$num_drivers),]$cancer_type
+filtered_primary_disease <- cancer_types_filt
+
+# Create and save the cross_cell_profile matrices
+cat("Calculating cross-cell profiles...\n")
+cross_cell_profile <- matrix(nrow = length(common_genes), ncol = length(unique(CRISPR$gene_name)))
+row.names(cross_cell_profile) <- common_genes
+colnames(cross_cell_profile) <- unique(CRISPR$gene_name)
+
+# Filling the matrix with DD values
+tmp <- DD_profile(cross_cell_profile, pan_cell_mut_mat_filt, unique(CRISPR$depmap_id), T)
+if(class(tmp) == "list"){
+  cross_cell_profile <- tmp[[1]]
+  cross_cell_profile_target <- tmp[[2]]
+} else{
+  cross_cell_profile <- tmp
+}
+  
+# Filter and save
+tmp1 <- rowSums(abs(cross_cell_profile))
+tmp2 <- colSums(abs(cross_cell_profile))
+cross_cell_profile_filt <- cross_cell_profile[names(tmp1)[tmp1>0], names(tmp2)[tmp2>0]]
+
+tmp1 <- rowSums(abs(cross_cell_profile_target))
+tmp2 <- colSums(abs(cross_cell_profile_target))
+cross_cell_profile_target_filt <- cross_cell_profile_target[names(tmp1)[tmp1>0], names(tmp2)[tmp2>0]]
+
+# Save the pan-cancer files
+cat("Saving pan-cancer dependency profiles...\n")
+write.table(cross_cell_profile_filt,
+            file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_matrix.csv",sep=""),
+            sep = ",", row.names = TRUE)
+write.table(cross_cell_profile_target_filt,
+            file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"dependencyProfile_targetable_matrix.csv",sep=""),
+            sep = ",", row.names = TRUE)
+write.table(pan_cell_mut_mat_filt,
+            file = paste(PAN_CANCER_DRIVER_GENE_ANALYSIS_PREFIX,"mutation_matrix.csv",sep=""),
+            sep = ",", row.names = TRUE)
+
+# Clear memory
+rm(cross_cell_profile)
+rm(tmp)
+rm(tmp1)
+rm(tmp2)
+gc()
+
+library(data.table)
+# Expression/specific - only for the remaining cancer types (19 onwards)
+cat("Processing specific cancer types (19 onwards)...\n")
+for(current_cancer_type in filtered_primary_disease[11:12]){
+  if(file.exists(paste(PATHWAY_ANALYSIS_PREFIX, "Specific/", current_cancer_type, "_corr.csv", sep=""))) {
+    cat("Skipping", current_cancer_type, "- file already exists:", paste(PATHWAY_ANALYSIS_PREFIX, "Specific/", current_cancer_type, "_corr.csv", sep=""), "\n")
+    next
+  }
+  
+  cat("Processing", current_cancer_type, "\n")
+  tic(current_cancer_type)
+  
+  tmpMETADATA <- METADATA
+  tmpMETADATA$primary_disease <- gsub("/", " ", tmpMETADATA$primary_disease)
+  current_depmap_ids <- tmpMETADATA$depmap_id[tmpMETADATA$primary_disease == current_cancer_type]
+  
+  # Free memory before each cancer type
+  gc()
+  
+  genes_to_process <- unique(CRISPR$gene_name)
+  correlation_df <- large_enrichment_analysis(genes_to_process, approved_genes)
+  
+  write.csv(correlation_df,
+            file = paste(PATHWAY_ANALYSIS_PREFIX, "Specific/", current_cancer_type, "_corr.csv", sep=""))
+  
+  # Free memory after each cancer type
+  rm(correlation_df)
+  gc()
+  toc()
+}
+
+cat("All tasks completed!\n")
+```
+

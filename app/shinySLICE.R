@@ -614,30 +614,30 @@ server <- function(input, output, session) {
   
   # Respond to clicking the main plot
   observeEvent(event_data("plotly_click", source = "generalPlot"), {
-    clicked <- event_data("plotly_click", source = "generalPlot")
-    
-    if (!is.null(clicked) && !is.null(clicked$key)) {
-      key_value <- clicked$key
+      clicked <- event_data("plotly_click", source = "generalPlot")
       
-      if (values$analysisType == "M") {
-        # For mutation-based analysis, set the gene of interest
-        values$GeneOfInterest <- key_value
-      } else {
-        # For expression-based analysis
-        # Check if the clicked key is a gene or gene set
-        if (exists("gene_sets") && key_value %in% names(gene_sets)) {
-          values$SetOfInterest <- key_value
-        } else {
+      if (!is.null(clicked) && !is.null(clicked$key)) {
+        key_value <- clicked$key
+        
+        if (values$analysisType == "M") {
+          # For mutation-based analysis, set the gene of interest
           values$GeneOfInterest <- key_value
+        } else {
+          # For expression-based analysis
+          # Check if the clicked key is a gene or gene set
+          if (exists("gene_sets") && key_value %in% names(gene_sets)) {
+            values$SetOfInterest <- key_value
+          } else {
+            values$GeneOfInterest <- key_value
+          }
         }
+        
+        # Print debugging information
+        cat("Clicked:", key_value, "\n")
+        cat("GeneOfInterest:", values$GeneOfInterest, "\n")
+        cat("SetOfInterest:", values$SetOfInterest, "\n")
       }
-      
-      # Print debugging information
-      cat("Clicked:", key_value, "\n")
-      cat("GeneOfInterest:", values$GeneOfInterest, "\n")
-      cat("SetOfInterest:", values$SetOfInterest, "\n")
-    }
-  }, ignoreNULL = TRUE, ignoreInit = TRUE)
+    }, ignoreNULL = TRUE, ignoreInit = TRUE)
   
   output$specificPlot <- renderPlot({
     paper_version <- T
